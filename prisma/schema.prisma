@@ -1,0 +1,184 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String
+  avatarUrl String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  familyMembers FamilyMember[]
+  expensesAdded  Expense[] @relation("AddedBy")
+  expensesPaid   Expense[] @relation("PaidBy")
+  recurringExpenses  RecurringExpense[]
+  attachments   Attachment[] @relation("AttachmentUploader")
+  notifications Notification[]
+  activityLogs  ActivityLog[] @relation("ActivityUser")
+  createdFamilies Family[]  @relation("FamilyCreator")
+}
+
+model Family {
+  id        String   @id @default(cuid())
+  name      String
+  photoUrl  String?
+  inviteCode String  @unique
+  createdBy  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  creator    User            @relation("FamilyCreator", fields: [createdBy], references: [id])
+  members    FamilyMember[]
+  expenses   Expense[]
+  categories Category[] @relation("CategoryFamily")
+  recurringExpenses RecurringExpense[]
+  permissions Permission[]
+  activityLogs  ActivityLog[]
+  notifications  Notification[]
+}
+
+model FamilyMember {
+  id        String   @id @default(cuid())
+  familyId  String
+  userId    String
+  role      String   @default("member")
+  joinedAt  DateTime @default(now())
+
+  family Family @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([familyId, userId])
+}
+
+model Expense {
+  id          String    @id @default(cuid())
+  title       String
+  description String?
+  amount      Float
+  expenseDate DateTime
+  categoryId  String
+  paidStatus  String    @default("unpaid")
+  dueDate     DateTime?
+  paidDate    DateTime?
+  whoPaidId   String
+  addedById   String
+  familyId    String
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  category    Category    @relation(fields: [categoryId], references: [id])
+  whoPaid     User        @relation("PaidBy", fields: [whoPaidId], references: [id])
+  addedBy     User        @relation("AddedBy", fields: [addedById], references: [id])
+  family      Family      @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  attachments Attachment[]
+
+  @@index([familyId])
+  @@index([categoryId])
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  name      String
+  icon      String   @default("tag")
+  color     String   @default("#6366f1")
+  familyId  String
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  family    Family    @relation("CategoryFamily", fields: [familyId], references: [id], onDelete: Cascade)
+  expenses  Expense[]
+  recurringCategoryUsages RecurringExpense[] @relation("RecurringCategory")
+
+  @@unique([familyId, name])
+}
+
+model RecurringExpense {
+  id          String    @id @default(cuid())
+  familyId    String
+  categoryId  String
+  title       String
+  amount      Float
+  frequency   String
+  startDate   DateTime
+  endDate     DateTime?
+  nextDueDate DateTime
+  createdBy   String
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  family    Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  category  Category @relation("RecurringCategory", fields: [categoryId], references: [id])
+  creator   User     @relation(fields: [createdBy], references: [id])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  familyId  String
+  title     String
+  message   String
+  type      String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  family Family @relation(fields: [familyId], references: [id], onDelete: Cascade)
+}
+
+model Permission {
+  id                   String  @id @default(cuid())
+  familyId             String
+  role                 String
+  canAddExpense        Boolean @default(true)
+  canEditOwnExpense    Boolean @default(true)
+  canEditAllExpenses   Boolean @default(false)
+  canDeleteExpense     Boolean @default(false)
+  canUploadAttachment  Boolean @default(true)
+  canManageCategories  Boolean @default(false)
+  canManageRecurring   Boolean @default(false)
+  canViewReports       Boolean @default(true)
+  canManageSettings    Boolean @default(false)
+  canInviteMembers     Boolean @default(false)
+  canRemoveMembers     Boolean @default(false)
+
+  family Family @relation(fields: [familyId], references: [id], onDelete: Cascade)
+
+  @@unique([familyId, role])
+}
+
+model ActivityLog {
+  id         String   @id @default(cuid())
+  familyId   String
+  userId     String
+  action     String
+  entityType String?
+  entityId   String?
+  details    String?
+  createdAt  DateTime @default(now())
+
+  family Family @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  user   User   @relation("ActivityUser", fields: [userId], references: [id])
+}
+
+model Attachment {
+  id         String   @id @default(cuid())
+  expenseId  String
+  fileName   String
+  fileUrl    String
+  fileType   String
+  fileSize   Int
+  uploadedBy String
+  createdAt  DateTime @default(now())
+
+  expense   Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  uploadedByUser User @relation("AttachmentUploader", fields: [uploadedBy], references: [id])
+}
