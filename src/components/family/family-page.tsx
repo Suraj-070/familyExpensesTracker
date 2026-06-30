@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useStore } from '@/store'
+import { useStore, formatCurrency } from '@/store'
 import { useFamilyData, useInvalidateFamilyData } from '@/hooks/use-queries'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -44,8 +44,8 @@ import {
   Crown,
   Trash2,
   Loader2,
-  Link2,
   CheckCheck,
+  LogOut,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { format } from 'date-fns'
@@ -58,7 +58,9 @@ export function FamilyPage() {
     createFamily,
     joinFamily,
     removeMember,
+    leaveFamily,
     updateMemberRole,
+    selectFamily,
   } = useStore()
 
   // React Query — cached + persisted, so this renders instantly from localStorage
@@ -72,8 +74,13 @@ export function FamilyPage() {
   const [saving, setSaving] = useState(false)
   const [copied, setCopied] = useState(false)
   const [removeId, setRemoveId] = useState<string | null>(null)
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false)
+  const [leaving, setLeaving] = useState(false)
+  // #42 — track which family is currently being switched to, for a loading state
+  const [switchingFamilyId, setSwitchingFamilyId] = useState<string | null>(null)
 
   const isAdmin = members.find((m) => m.userId === user?.id)?.role === 'admin'
+  const isSoleAdmin = isAdmin && members.filter((m) => m.role === 'admin').length === 1
 
   const handleCreate = async () => {
     if (!familyName.trim()) {
@@ -129,8 +136,23 @@ export function FamilyPage() {
       invalidateFamilyData()
       toast.success('Member removed')
       setRemoveId(null)
-    } catch {
-      toast.error('Failed to remove member')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to remove member')
+    }
+  }
+
+  // #41 — self-service leave family, was confirmed missing entirely from the UI
+  const handleLeave = async () => {
+    setLeaving(true)
+    try {
+      await leaveFamily()
+      invalidateFamilyData()
+      toast.success('You left the family')
+      setShowLeaveConfirm(false)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to leave family')
+    } finally {
+      setLeaving(false)
     }
   }
 
@@ -139,10 +161,25 @@ export function FamilyPage() {
       await updateMemberRole(userId, role)
       invalidateFamilyData()
       toast.success('Role updated')
-    } catch {
-      toast.error('Failed to update role')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update role')
     }
   }
+
+  // #42 — switching families now shows a spinner and prevents double-clicks
+  const handleSwitchFamily = async (fam: typeof families[0]) => {
+    if (fam.id === currentFamily?.id || switchingFamilyId) return
+    setSwitchingFamilyId(fam.id)
+    try {
+      await selectFamily(fam)
+      invalidateFamilyData()
+    } finally {
+      setSwitchingFamilyId(null)
+    }
+  }
+
+  // #40 — find the member being removed so we can show their expense stats
+  const removeTarget = members.find((m) => m.userId === removeId)
 
   if (loading) {
     return (
@@ -260,6 +297,16 @@ export function FamilyPage() {
                 {members.length} member{members.length !== 1 ? 's' : ''} · Created {format(new Date(currentFamily.createdAt), 'MMM d, yyyy')}
               </p>
             </div>
+            {/* #41 — self-service leave family button, was completely missing before */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-destructive hover:bg-destructive/10 hover:text-destructive shrink-0"
+              onClick={() => setShowLeaveConfirm(true)}
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              Leave Family
+            </Button>
           </div>
 
           <Separator className="my-4" />
@@ -330,6 +377,10 @@ export function FamilyPage() {
                   </div>
                   <p className="text-xs text-muted-foreground truncate">
                     {member.user?.email || ''}
+                    {/* #40 — show expense activity inline on the member row too, not just the removal dialog */}
+                    {member.expenseCount !== undefined && member.expenseCount > 0 && (
+                      <span> · {member.expenseCount} expense{member.expenseCount !== 1 ? 's' : ''}</span>
+                    )}
                   </p>
                 </div>
                 {isAdmin && member.userId !== user?.id && (
@@ -362,7 +413,7 @@ export function FamilyPage() {
         </CardContent>
       </Card>
 
-      {/* Other Families */}
+      {/* Other Families — #42, switching now shows a loading state */}
       {families.length > 1 && (
         <Card>
           <CardHeader className="pb-2">
@@ -373,12 +424,17 @@ export function FamilyPage() {
               {families.map((fam) => (
                 <button
                   key={fam.id}
-                  onClick={() => useStore.getState().selectFamily(fam)}
-                  className={`flex items-center gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-accent/50 ${
+                  onClick={() => handleSwitchFamily(fam)}
+                  disabled={switchingFamilyId !== null}
+                  className={`flex items-center gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-accent/50 disabled:opacity-60 disabled:cursor-wait ${
                     fam.id === currentFamily.id ? 'border-primary bg-accent/30' : ''
                   }`}
                 >
-                  <Users className="h-5 w-5 text-muted-foreground" />
+                  {switchingFamilyId === fam.id ? (
+                    <Loader2 className="h-5 w-5 text-muted-foreground animate-spin" />
+                  ) : (
+                    <Users className="h-5 w-5 text-muted-foreground" />
+                  )}
                   <span className="text-sm font-medium">{fam.name}</span>
                   {fam.id === currentFamily.id && (
                     <Badge variant="default" className="text-[10px] ml-auto">Active</Badge>
@@ -390,19 +446,52 @@ export function FamilyPage() {
         </Card>
       )}
 
-      {/* Remove Confirmation */}
+      {/* Remove Confirmation — #40, now shows expense count + total tied to this person */}
       <AlertDialog open={!!removeId} onOpenChange={() => setRemoveId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove Member</AlertDialogTitle>
-            <AlertDialogDescription>
-              This member will be removed from the family. Their expenses will remain but they will lose access.
+            <AlertDialogTitle>Remove {removeTarget?.user?.name || 'Member'}?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <span className="block">
+                This member will be removed from the family. Their expenses will remain but they will lose access.
+              </span>
+              {removeTarget && removeTarget.expenseCount !== undefined && removeTarget.expenseCount > 0 && (
+                <span className="block rounded-lg bg-muted px-3 py-2 text-foreground text-sm font-medium">
+                  {removeTarget.expenseCount} expense{removeTarget.expenseCount !== 1 ? 's' : ''} totaling{' '}
+                  {formatCurrency(removeTarget.expenseTotal || 0)} will remain attributed to this person.
+                </span>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleRemove} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Leave Family Confirmation — #41, blocks sole admin (also enforced server-side) */}
+      <AlertDialog open={showLeaveConfirm} onOpenChange={setShowLeaveConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Leave {currentFamily.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {isSoleAdmin
+                ? "You're the only admin in this family. Promote another member to admin before leaving, or the action will be blocked."
+                : "You'll lose access to this family's expenses and data. You can rejoin later with the invite code if you're invited again."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleLeave}
+              disabled={leaving}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {leaving && <Loader2 className="h-4 w-4 animate-spin" />}
+              Leave Family
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

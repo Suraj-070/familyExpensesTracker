@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import { useStore, formatCurrency, type Expense } from '@/store'
 import { useExpensesQuery, useInvalidateAfterExpenseChange } from '@/hooks/use-queries'
 import { Button } from '@/components/ui/button'
@@ -18,11 +18,10 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import {
   Search, Plus, X, Edit3, Trash2, CreditCard, Receipt, SlidersHorizontal,
-  CheckCircle2, Clock, FileText,
+  FileText, Loader2,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
@@ -65,8 +64,8 @@ export function ExpensesPage() {
       toast.success('Expense deleted')
       setDeleteId(null)
       if (detailExpense?.id === deleteId) setDetailExpense(null)
-    } catch {
-      toast.error('Failed to delete expense')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete expense')
     } finally {
       setDeletingId(null)
     }
@@ -79,8 +78,8 @@ export function ExpensesPage() {
       await togglePaidStatus(id)
       invalidateExpenses()
       toast.success('Status updated')
-    } catch {
-      toast.error('Failed to update status')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update status')
     } finally {
       setTogglingId(null)
     }
@@ -95,13 +94,26 @@ export function ExpensesPage() {
     })
   }
 
-  const hasActiveFilters = Object.values(expenseFilters).some(
-    (v) => v !== undefined && v !== '' && v !== 'all'
-  )
+  // #19 — count individual active filters for the badge (search excluded, it has its own clear-x)
+  const activeFilterCount = Object.entries(expenseFilters).filter(
+    ([key, v]) => key !== 'search' && v !== undefined && v !== '' && v !== 'all'
+  ).length
 
-  const openEdit = (e: React.MouseEvent, expense: Expense) => {
+  const hasActiveFilters = activeFilterCount > 0 || !!expenseFilters.search
+
+  // #21 — edit now opens directly without first closing the detail dialog in a
+  // separate state update (that two-step toggle was what caused the flicker).
+  // Both dialogs' open conditions are designed so only one is ever visually
+  // open at a time, and onOpenChange on the edit dialog cleans up both states
+  // together in one transition.
+  const openEditFromDetail = (e: React.MouseEvent, expense: Expense) => {
     e.stopPropagation()
-    setDetailExpense(null)
+    setSelectedExpense(expense)
+    setEditExpense(expense)
+  }
+
+  const openEditFromList = (e: React.MouseEvent, expense: Expense) => {
+    e.stopPropagation()
     setSelectedExpense(expense)
     setEditExpense(expense)
   }
@@ -128,18 +140,33 @@ export function ExpensesPage() {
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             className="pl-9 pr-9"
+            aria-label="Search expenses"
           />
           {searchInput && (
             <button onClick={() => setSearchInput('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              aria-label="Clear search">
               <X className="h-4 w-4" />
             </button>
           )}
         </div>
-        <Button variant={showFilters ? 'default' : 'outline'} size="icon"
-          onClick={() => setShowFilters(!showFilters)} aria-label="Filters">
-          <SlidersHorizontal className="h-4 w-4" />
-        </Button>
+
+        {/* Filter button with active count badge — #19 */}
+        <div className="relative">
+          <Button variant={showFilters ? 'default' : 'outline'} size="icon"
+            onClick={() => setShowFilters(!showFilters)}
+            aria-label={`${showFilters ? 'Hide' : 'Show'} filters${activeFilterCount > 0 ? `, ${activeFilterCount} active` : ''}`}>
+            <SlidersHorizontal className="h-4 w-4" />
+          </Button>
+          {activeFilterCount > 0 && (
+            <span
+              className="absolute -top-1.5 -right-1.5 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground"
+              aria-hidden="true"
+            >
+              {activeFilterCount}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Filter panel */}
@@ -151,13 +178,13 @@ export function ExpensesPage() {
               <CardContent className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 <Select value={expenseFilters.categoryId || 'all'}
                   onValueChange={(v) => setFilters({ categoryId: v === 'all' ? undefined : v })}>
-                  <SelectTrigger><SelectValue placeholder="Category" /></SelectTrigger>
+                  <SelectTrigger aria-label="Filter by category"><SelectValue placeholder="Category" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Categories</SelectItem>
                     {categories.map((c) => (
                       <SelectItem key={c.id} value={c.id}>
                         <span className="flex items-center gap-2">
-                          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: c.color }} />
+                          <span className="h-2.5 w-2.5 rounded-full ring-1 ring-black/10 dark:ring-white/10" style={{ backgroundColor: c.color }} />
                           {c.name}
                         </span>
                       </SelectItem>
@@ -167,7 +194,7 @@ export function ExpensesPage() {
 
                 <Select value={expenseFilters.paidStatus || 'all'}
                   onValueChange={(v) => setFilters({ paidStatus: v as 'all' | 'paid' | 'unpaid' })}>
-                  <SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger>
+                  <SelectTrigger aria-label="Filter by status"><SelectValue placeholder="Status" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Status</SelectItem>
                     <SelectItem value="paid">Paid</SelectItem>
@@ -175,9 +202,9 @@ export function ExpensesPage() {
                   </SelectContent>
                 </Select>
 
-                <Input type="date" value={expenseFilters.dateFrom || ''}
+                <Input type="date" aria-label="From date" value={expenseFilters.dateFrom || ''}
                   onChange={(e) => setFilters({ dateFrom: e.target.value || undefined })} />
-                <Input type="date" value={expenseFilters.dateTo || ''}
+                <Input type="date" aria-label="To date" value={expenseFilters.dateTo || ''}
                   onChange={(e) => setFilters({ dateTo: e.target.value || undefined })} />
 
                 {hasActiveFilters && (
@@ -214,7 +241,7 @@ export function ExpensesPage() {
       ) : (
         <div className="grid gap-2">
           <AnimatePresence initial={false}>
-            {expenses.map((expense, i) => (
+            {expenses.map((expense: Expense, i: number) => (
               <motion.div key={expense.id}
                 initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.97 }} transition={{ delay: i * 0.02 }}>
@@ -237,25 +264,41 @@ export function ExpensesPage() {
                         </div>
                         <p className="text-xs text-muted-foreground mt-0.5 truncate">
                           {expense.category?.name || 'Uncategorized'}
-                          {(expense.whoPaid?.name || expense.paidByName) && ` · ${expense.whoPaid?.name || expense.paidByName}`}
+                          {expense.whoPaid?.name && ` · ${expense.whoPaid.name}`}
                           {' · '}{format(new Date(expense.expenseDate), 'MMM d, yyyy')}
                         </p>
                       </div>
                       <p className="font-semibold text-sm tabular-nums shrink-0">{formatCurrency(expense.amount)}</p>
+
+                      {/* #18 — delete visually separated from the safe actions via a divider */}
                       <div className="flex items-center shrink-0" onClick={(e) => e.stopPropagation()}>
                         <Button variant="ghost" size="icon" className="h-8 w-8"
                           onClick={(e) => handleTogglePaid(e, expense.id)}
                           disabled={togglingId === expense.id}
+                          aria-label={expense.paidStatus === 'paid' ? 'Mark as unpaid' : 'Mark as paid'}
                           title={expense.paidStatus === 'paid' ? 'Mark unpaid' : 'Mark paid'}>
-                          <CreditCard className="h-3.5 w-3.5" />
+                          {togglingId === expense.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <CreditCard className="h-3.5 w-3.5" />
+                          )}
                         </Button>
                         <Button variant="ghost" size="icon" className="h-8 w-8"
-                          onClick={(e) => openEdit(e, expense)}>
+                          onClick={(e) => openEditFromList(e, expense)}
+                          aria-label="Edit expense">
                           <Edit3 className="h-3.5 w-3.5" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive"
-                          onClick={(e) => { e.stopPropagation(); setDeleteId(expense.id) }}>
-                          <Trash2 className="h-3.5 w-3.5" />
+                        <Separator orientation="vertical" className="h-5 mx-0.5" />
+                        <Button variant="ghost" size="icon"
+                          className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          onClick={(e) => { e.stopPropagation(); setDeleteId(expense.id) }}
+                          disabled={deletingId === expense.id}
+                          aria-label="Delete expense">
+                          {deletingId === expense.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-3.5 w-3.5" />
+                          )}
                         </Button>
                       </div>
                     </div>
@@ -270,13 +313,14 @@ export function ExpensesPage() {
       {/* FAB */}
       <div className="fixed bottom-6 right-6 lg:hidden z-30">
         <Button onClick={() => setShowAddForm(true)} size="icon"
-          className="h-14 w-14 rounded-full shadow-lg shadow-black/20">
+          className="h-14 w-14 rounded-full shadow-lg shadow-black/20"
+          aria-label="Add expense">
           <Plus className="h-6 w-6" />
         </Button>
       </div>
 
-      {/* Detail dialog */}
-      <Dialog open={!!detailExpense} onOpenChange={() => setDetailExpense(null)}>
+      {/* Detail dialog — only open when no edit dialog is active, #21 */}
+      <Dialog open={!!detailExpense && !editExpense} onOpenChange={(open) => { if (!open) setDetailExpense(null) }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="truncate">{detailExpense?.title}</DialogTitle>
@@ -306,7 +350,7 @@ export function ExpensesPage() {
                 </div>
                 <div>
                   <p className="text-muted-foreground text-xs mb-0.5">Paid By</p>
-                  <p className="font-medium">{detailExpense.whoPaid?.name || detailExpense.paidByName || '—'}</p>
+                  <p className="font-medium">{detailExpense.whoPaid?.name || '—'}</p>
                 </div>
                 <div>
                   <p className="text-muted-foreground text-xs mb-0.5">Added By</p>
@@ -347,7 +391,7 @@ export function ExpensesPage() {
               )}
               <div className="flex gap-2 pt-2">
                 <Button variant="outline" className="flex-1" onClick={() => setDetailExpense(null)}>Close</Button>
-                <Button className="flex-1" onClick={(e) => openEdit(e, detailExpense)}>
+                <Button className="flex-1" onClick={(e) => openEditFromDetail(e, detailExpense)}>
                   <Edit3 className="h-4 w-4" />Edit
                 </Button>
               </div>
@@ -367,14 +411,14 @@ export function ExpensesPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Edit form dialog */}
-      <Dialog open={!!editExpense} onOpenChange={(open) => { if (!open) setEditExpense(null) }}>
+      {/* Edit form dialog — closing it also clears detail state in one transition, #21 */}
+      <Dialog open={!!editExpense} onOpenChange={(open) => { if (!open) { setEditExpense(null); setDetailExpense(null) } }}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Expense</DialogTitle>
             <DialogDescription>Update expense details</DialogDescription>
           </DialogHeader>
-          <ExpenseForm onClose={() => setEditExpense(null)} editingExpense={editExpense} />
+          <ExpenseForm onClose={() => { setEditExpense(null); setDetailExpense(null) }} editingExpense={editExpense} />
         </DialogContent>
       </Dialog>
 
@@ -389,8 +433,9 @@ export function ExpensesPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete}
+            <AlertDialogAction onClick={handleDelete} disabled={deletingId === deleteId}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              {deletingId === deleteId && <Loader2 className="h-4 w-4 animate-spin" />}
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>

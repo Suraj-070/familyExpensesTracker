@@ -99,6 +99,8 @@ export function Providers({ children }: { children: ReactNode }) {
   usePersistQueryCache(queryClient)
 
   return (
+    // @ts-expect-error — next-themes' published types don't declare `children`
+    // correctly for React 19, but it works fine at runtime.
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
       <QueryClientProvider client={queryClient}>
         <RealtimeSync />
