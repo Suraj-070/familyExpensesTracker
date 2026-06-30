@@ -1,10 +1,8 @@
 'use client'
 
 import { ThemeProvider } from 'next-themes'
-import { QueryClient } from '@tanstack/react-query'
-import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
-import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister'
-import { useState, type ReactNode } from 'react'
+import { QueryClient, QueryClientProvider, dehydrate, hydrate } from '@tanstack/react-query'
+import { useState, type ReactNode, useEffect } from 'react'
 import { useStore } from '@/store'
 import { useRealtimeFamily, useRealtimeNotifications } from '@/hooks/use-realtime'
 
@@ -16,72 +14,96 @@ function RealtimeSync() {
   return null
 }
 
-// 24 hours — how long cached data is kept in localStorage before being discarded
-// even if never invalidated. Prevents stale data from living forever if the user
-// never revisits a page.
-const MAX_CACHE_AGE = 1000 * 60 * 60 * 24
+const CACHE_KEY = 'famexpense-query-cache'
+const MAX_CACHE_AGE = 1000 * 60 * 60 * 24 // 24 hours
+
+/**
+ * Creates a QueryClient and immediately hydrates it from localStorage if a
+ * valid cache exists. Running this inside useState's lazy initializer means
+ * it executes exactly once, before first render, and does NOT touch refs
+ * during render (which React 19 now warns about/disallows).
+ */
+function createHydratedQueryClient() {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: 60 * 1000,
+        gcTime: MAX_CACHE_AGE,
+        retry: 1,
+        refetchOnWindowFocus: true,
+        refetchOnReconnect: true,
+      },
+    },
+  })
+
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = localStorage.getItem(CACHE_KEY)
+      if (raw) {
+        const { dehydratedState, timestamp } = JSON.parse(raw)
+        const age = Date.now() - timestamp
+        if (age < MAX_CACHE_AGE && dehydratedState) {
+          hydrate(queryClient, dehydratedState)
+        } else {
+          localStorage.removeItem(CACHE_KEY)
+        }
+      }
+    } catch {
+      // Corrupted cache — ignore and start fresh, never let a bad cache crash the app
+      localStorage.removeItem(CACHE_KEY)
+    }
+  }
+
+  return queryClient
+}
+
+/**
+ * Persists the QueryClient's cache to localStorage on every change (debounced).
+ * This is a pure side effect — runs in useEffect, no render-time ref access.
+ */
+function usePersistQueryCache(queryClient: QueryClient) {
+  useEffect(() => {
+    let timeout: ReturnType<typeof setTimeout> | null = null
+
+    const save = () => {
+      try {
+        const dehydratedState = dehydrate(queryClient, {
+          shouldDehydrateQuery: (query) => query.state.status === 'success',
+        })
+        localStorage.setItem(
+          CACHE_KEY,
+          JSON.stringify({ dehydratedState, timestamp: Date.now() })
+        )
+      } catch {
+        // localStorage full or unavailable (e.g. private browsing) — fail silently
+      }
+    }
+
+    const unsubscribe = queryClient.getQueryCache().subscribe(() => {
+      if (timeout) clearTimeout(timeout)
+      timeout = setTimeout(save, 1000)
+    })
+
+    return () => {
+      unsubscribe()
+      if (timeout) clearTimeout(timeout)
+    }
+  }, [queryClient])
+}
 
 export function Providers({ children }: { children: ReactNode }) {
-  const [queryClient] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            // Data is considered fresh for 60s — no refetch on remount within that window
-            staleTime: 60 * 1000,
-            // Cached data is kept in memory (and persisted to localStorage) for 24h
-            gcTime: MAX_CACHE_AGE,
-            retry: 1,
-            // Refetch when the tab regains focus / network reconnects — keeps mobile
-            // tab-switching behavior correct without a full reload
-            refetchOnWindowFocus: true,
-            refetchOnReconnect: true,
-          },
-        },
-      })
-  )
+  // Lazy initializer — runs once on mount, not during every render, and is
+  // the React-sanctioned place to do this kind of one-time setup work.
+  const [queryClient] = useState(createHydratedQueryClient)
 
-  // localStorage-backed persister. Works identically on desktop and mobile web —
-  // no native/device API needed, just the standard Web Storage API every browser has.
-  // This is what makes pages render instantly on refresh: React Query rehydrates
-  // the last-known data from localStorage before any network request completes,
-  // then silently refetches in the background per the staleTime above.
-  const [persister] = useState(() =>
-    typeof window !== 'undefined'
-      ? createSyncStoragePersister({
-          storage: window.localStorage,
-          key: 'famexpense-query-cache',
-          // Avoid persisting absolutely everything forever — cap serialized size
-          throttleTime: 1000,
-        })
-      : undefined
-  )
-
-  if (!persister) {
-    // SSR fallback — no localStorage on the server, render without persistence
-    return (
-      <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-        {children}
-      </ThemeProvider>
-    )
-  }
+  usePersistQueryCache(queryClient)
 
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-      <PersistQueryClientProvider
-        client={queryClient}
-        persistOptions={{
-          persister,
-          maxAge: MAX_CACHE_AGE,
-          // Only persist successful queries — never cache an error state
-          dehydrateOptions: {
-            shouldDehydrateQuery: (query) => query.state.status === 'success',
-          },
-        }}
-      >
+      <QueryClientProvider client={queryClient}>
         <RealtimeSync />
         {children}
-      </PersistQueryClientProvider>
+      </QueryClientProvider>
     </ThemeProvider>
   )
 }
