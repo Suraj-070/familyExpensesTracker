@@ -83,10 +83,14 @@ export async function PUT(
     if (body.description !== undefined) updateData.description = body.description
     if (body.amount !== undefined) updateData.amount = parseFloat(body.amount)
     if (body.expenseDate !== undefined) updateData.expenseDate = new Date(body.expenseDate)
-    if (body.categoryId !== undefined) updateData.categoryId = body.categoryId
+    if (body.categoryId !== undefined) updateData.categoryId = body.categoryId || null
     if (body.dueDate !== undefined) updateData.dueDate = body.dueDate ? new Date(body.dueDate) : null
     if (body.whoPaidId !== undefined) updateData.whoPaidId = body.whoPaidId
     if (body.notes !== undefined) updateData.notes = body.notes
+    if (body.paidStatus !== undefined) {
+      updateData.paidStatus = body.paidStatus
+      updateData.paidDate = body.paidStatus === 'paid' ? new Date() : null
+    }
 
     const expense = await db.$transaction(async (tx) => {
       const e = await tx.expense.update({

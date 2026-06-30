@@ -125,7 +125,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// PUT /api/auth/profile - Update profile
+// PUT /api/auth - Update profile or change password
 export async function PUT(req: NextRequest) {
   try {
     const auth = extractAuth(req)
@@ -134,21 +134,37 @@ export async function PUT(req: NextRequest) {
     }
 
     const body = await req.json()
-    const { name, avatarUrl } = body
+    const { name, email, avatarUrl, currentPassword, newPassword } = body
 
+    // Password change
+    if (newPassword) {
+      if (!currentPassword) {
+        return NextResponse.json({ error: 'Current password is required' }, { status: 400 })
+      }
+      if (newPassword.length < 6) {
+        return NextResponse.json({ error: 'New password must be at least 6 characters' }, { status: 400 })
+      }
+      const existing = await db.user.findUnique({ where: { id: auth.userId } })
+      if (!existing) return NextResponse.json({ error: 'User not found' }, { status: 404 })
+      if (!verifyPassword(currentPassword, existing.password)) {
+        return NextResponse.json({ error: 'Current password is incorrect' }, { status: 400 })
+      }
+      await db.user.update({
+        where: { id: auth.userId },
+        data: { password: hashPassword(newPassword) },
+      })
+      return NextResponse.json({ message: 'Password updated successfully' })
+    }
+
+    // Profile update
     const user = await db.user.update({
       where: { id: auth.userId },
       data: {
         ...(name !== undefined && { name }),
+        ...(email !== undefined && { email }),
         ...(avatarUrl !== undefined && { avatarUrl }),
       },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        avatarUrl: true,
-        createdAt: true,
-      },
+      select: { id: true, email: true, name: true, avatarUrl: true, createdAt: true },
     })
 
     return NextResponse.json({ user })

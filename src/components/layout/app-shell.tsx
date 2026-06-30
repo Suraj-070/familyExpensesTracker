@@ -16,7 +16,6 @@ import {
   User,
   LogOut,
   Menu,
-  Bell,
   Sun,
   Moon,
   Wallet,
@@ -35,8 +34,6 @@ import {
 import {
   Sheet,
   SheetContent,
-  SheetHeader,
-  SheetTitle,
 } from '@/components/ui/sheet'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { DashboardPage } from '@/components/dashboard/dashboard-page'
@@ -72,14 +69,14 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <div className="flex h-full flex-col">
-      <SheetHeader className="p-4 pb-0">
-        <SheetTitle className="flex items-center gap-2">
+      <div className="p-4 pb-0">
+        <div className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 text-white">
             <Wallet className="h-4 w-4" />
           </div>
           <span className="font-semibold">FamExpense</span>
-        </SheetTitle>
-      </SheetHeader>
+        </div>
+      </div>
       <div className="px-4 pt-2 pb-1">
         {currentFamily && (
           <p className="text-xs text-muted-foreground truncate">{currentFamily.name}</p>
@@ -101,7 +98,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                <Icon className="h-4.5 w-4.5" />
+                <Icon className="h-4 w-4" />
                 {item.label}
               </button>
             )
@@ -118,7 +115,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
               : 'text-muted-foreground hover:text-foreground'
           }`}
         >
-          <User className="h-4.5 w-4.5" />
+          <User className="h-4 w-4" />
           Profile
         </button>
         <button
@@ -128,7 +125,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           }}
           className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground transition-all hover:bg-destructive/10 hover:text-destructive"
         >
-          <LogOut className="h-4.5 w-4.5" />
+          <LogOut className="h-4 w-4" />
           Logout
         </button>
       </div>
@@ -153,28 +150,23 @@ export function AppShell() {
 
   const renderPage = () => {
     switch (currentPage) {
-      case 'dashboard': return <DashboardPage />
-      case 'expenses': return <ExpensesPage />
-      case 'add-expense': return <ExpenseForm />
+      case 'dashboard':    return <DashboardPage />
+      case 'expenses':     return <ExpensesPage />
+      case 'add-expense':  return <ExpenseForm />
       case 'edit-expense': return <ExpenseForm />
-      case 'categories': return <CategoriesPage />
-      case 'recurring': return <RecurringPage />
-      case 'family': return <FamilyPage />
-      case 'reports': return <ReportsPage />
-      case 'search': return <SearchPage />
-      case 'profile': return <ProfilePage />
-      case 'settings': return <SettingsPage />
-      default: return <DashboardPage />
+      case 'categories':   return <CategoriesPage />
+      case 'recurring':    return <RecurringPage />
+      case 'family':       return <FamilyPage />
+      case 'reports':      return <ReportsPage />
+      case 'search':       return <SearchPage />
+      case 'profile':      return <ProfilePage />
+      case 'settings':     return <SettingsPage />
+      default:             return <DashboardPage />
     }
   }
 
   const initials = user?.name
-    ? user.name
-        .split(' ')
-        .map((n) => n[0])
-        .join('')
-        .toUpperCase()
-        .slice(0, 2)
+    ? user.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)
     : 'U'
 
   return (
@@ -219,8 +211,8 @@ export function AppShell() {
                   onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
                   aria-label="Toggle theme"
                 >
-                  <Sun className="h-4.5 w-4.5 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-                  <Moon className="absolute h-4.5 w-4.5 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+                  <Sun className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
+                  <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Toggle theme</TooltipContent>

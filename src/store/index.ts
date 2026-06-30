@@ -185,7 +185,7 @@ interface AppState {
   // Categories
   categories: Category[]
   loadCategories: () => Promise<void>
-  createCategory: (data: { name: string; icon: string; color: string }) => Promise<void>
+  createCategory: (data: { name: string; icon: string; color: string }) => Promise<{ id: string } | null>
   updateCategory: (id: string, data: { name: string; icon: string; color: string }) => Promise<void>
   deleteCategory: (id: string) => Promise<void>
 
@@ -521,20 +521,26 @@ export const useStore = create<AppState>((set, get) => ({
     const res = await API(`/api/categories?familyId=${currentFamily.id}`)
     if (res.ok) {
       const data = await res.json()
-      set({ categories: data.categories || [] })
+      // API may return {categories:[]} or a raw array depending on version
+      const categories = Array.isArray(data) ? data : (data.categories || [])
+      set({ categories })
     }
   },
 
   createCategory: async (data) => {
     const { currentFamily } = get()
-    if (!currentFamily) return
+    if (!currentFamily) return null
     const res = await API('/api/categories', {
       method: 'POST',
       body: JSON.stringify({ ...data, familyId: currentFamily.id }),
     })
-    if (res.ok) {
-      get().loadCategories()
+    const result = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      throw new Error(result.error || 'Failed to create category')
     }
+    await get().loadCategories()
+    // API returns {category: {...}} — return its id so callers can use it immediately
+    return result.category ?? null
   },
 
   updateCategory: async (id, data) => {

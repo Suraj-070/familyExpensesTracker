@@ -57,14 +57,17 @@ export function ReportsPage() {
 
   const [loading, setLoading] = useState(true)
 
+  const { currentFamily } = useStore()
+
   useEffect(() => {
+    if (!currentFamily) return
     setLoading(true)
     Promise.all([
       loadReportSummary(),
       loadCategoryReport(),
       loadTrendData(12),
     ]).finally(() => setLoading(false))
-  }, [loadReportSummary, loadCategoryReport, loadTrendData])
+  }, [currentFamily?.id])
 
   if (loading) {
     return (

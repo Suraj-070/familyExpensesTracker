@@ -1,31 +1,37 @@
 'use client'
 
+import { useEffect, useState } from 'react'
+import { useStore } from '@/store'
+import { AppShell } from '@/components/layout/app-shell'
+import { LoginPage } from '@/components/auth/login-page'
+import { SignupPage } from '@/components/auth/signup-page'
+import { ForgotPasswordPage } from '@/components/auth/forgot-password-page'
+import { Loader2, Wallet } from 'lucide-react'
+
 export default function Home() {
-  return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      minHeight: '100vh',
-      gap: '2rem',
-      padding: '1rem'
-    }}>
-      <div style={{
-        position: 'relative',
-        width: '6rem',
-        height: '6rem'
-      }}>
-        <img
-          src="/logo.svg"
-          alt="Z.ai Logo"
-          style={{
-            width: '100%',
-            height: '100%',
-            objectFit: 'contain'
-          }}
-        />
+  const { initAuth, isAuthenticated, currentPage } = useStore()
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    initAuth().finally(() => setLoading(false))
+  }, [initAuth])
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-background">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-lg">
+          <Wallet className="h-7 w-7" />
+        </div>
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
       </div>
-    </div>
-  )
+    )
+  }
+
+  if (!isAuthenticated) {
+    if (currentPage === 'signup') return <SignupPage />
+    if (currentPage === 'forgot') return <ForgotPasswordPage />
+    return <LoginPage />
+  }
+
+  return <AppShell />
 }

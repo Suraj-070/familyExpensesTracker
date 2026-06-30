@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model User {
@@ -16,41 +17,41 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  familyMembers FamilyMember[]
-  expensesAdded  Expense[] @relation("AddedBy")
-  expensesPaid   Expense[] @relation("PaidBy")
-  recurringExpenses  RecurringExpense[]
-  attachments   Attachment[] @relation("AttachmentUploader")
-  notifications Notification[]
-  activityLogs  ActivityLog[] @relation("ActivityUser")
-  createdFamilies Family[]  @relation("FamilyCreator")
+  familyMembers     FamilyMember[]
+  expensesAdded     Expense[]          @relation("AddedBy")
+  expensesPaid      Expense[]          @relation("PaidBy")
+  recurringExpenses RecurringExpense[]
+  attachments       Attachment[]       @relation("AttachmentUploader")
+  notifications     Notification[]
+  activityLogs      ActivityLog[]      @relation("ActivityUser")
+  createdFamilies   Family[]           @relation("FamilyCreator")
 }
 
 model Family {
-  id        String   @id @default(cuid())
-  name      String
-  photoUrl  String?
-  inviteCode String  @unique
+  id         String   @id @default(cuid())
+  name       String
+  photoUrl   String?
+  inviteCode String   @unique
   createdBy  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  creator    User            @relation("FamilyCreator", fields: [createdBy], references: [id])
-  members    FamilyMember[]
-  expenses   Expense[]
-  categories Category[] @relation("CategoryFamily")
+  creator          User               @relation("FamilyCreator", fields: [createdBy], references: [id])
+  members          FamilyMember[]
+  expenses         Expense[]
+  categories       Category[]         @relation("CategoryFamily")
   recurringExpenses RecurringExpense[]
-  permissions Permission[]
-  activityLogs  ActivityLog[]
-  notifications  Notification[]
+  permissions      Permission[]
+  activityLogs     ActivityLog[]
+  notifications    Notification[]
 }
 
 model FamilyMember {
-  id        String   @id @default(cuid())
-  familyId  String
-  userId    String
-  role      String   @default("member")
-  joinedAt  DateTime @default(now())
+  id       String   @id @default(cuid())
+  familyId String
+  userId   String
+  role     String   @default("member")
+  joinedAt DateTime @default(now())
 
   family Family @relation(fields: [familyId], references: [id], onDelete: Cascade)
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -64,7 +65,7 @@ model Expense {
   description String?
   amount      Float
   expenseDate DateTime
-  categoryId  String
+  categoryId  String?
   paidStatus  String    @default("unpaid")
   dueDate     DateTime?
   paidDate    DateTime?
@@ -75,10 +76,10 @@ model Expense {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  category    Category    @relation(fields: [categoryId], references: [id])
-  whoPaid     User        @relation("PaidBy", fields: [whoPaidId], references: [id])
-  addedBy     User        @relation("AddedBy", fields: [addedById], references: [id])
-  family      Family      @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  category    Category?     @relation(fields: [categoryId], references: [id])
+  whoPaid     User         @relation("PaidBy", fields: [whoPaidId], references: [id])
+  addedBy     User         @relation("AddedBy", fields: [addedById], references: [id])
+  family      Family       @relation(fields: [familyId], references: [id], onDelete: Cascade)
   attachments Attachment[]
 
   @@index([familyId])
@@ -94,8 +95,8 @@ model Category {
   isDefault Boolean  @default(false)
   createdAt DateTime @default(now())
 
-  family    Family    @relation("CategoryFamily", fields: [familyId], references: [id], onDelete: Cascade)
-  expenses  Expense[]
+  family                 Family             @relation("CategoryFamily", fields: [familyId], references: [id], onDelete: Cascade)
+  expenses               Expense[]
   recurringCategoryUsages RecurringExpense[] @relation("RecurringCategory")
 
   @@unique([familyId, name])
@@ -104,7 +105,7 @@ model Category {
 model RecurringExpense {
   id          String    @id @default(cuid())
   familyId    String
-  categoryId  String
+  categoryId  String?
   title       String
   amount      Float
   frequency   String
@@ -115,9 +116,9 @@ model RecurringExpense {
   isActive    Boolean   @default(true)
   createdAt   DateTime  @default(now())
 
-  family    Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
-  category  Category @relation("RecurringCategory", fields: [categoryId], references: [id])
-  creator   User     @relation(fields: [createdBy], references: [id])
+  family   Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  category Category? @relation("RecurringCategory", fields: [categoryId], references: [id])
+  creator  User     @relation(fields: [createdBy], references: [id])
 }
 
 model Notification {
@@ -135,20 +136,20 @@ model Notification {
 }
 
 model Permission {
-  id                   String  @id @default(cuid())
-  familyId             String
-  role                 String
-  canAddExpense        Boolean @default(true)
-  canEditOwnExpense    Boolean @default(true)
-  canEditAllExpenses   Boolean @default(false)
-  canDeleteExpense     Boolean @default(false)
-  canUploadAttachment  Boolean @default(true)
-  canManageCategories  Boolean @default(false)
-  canManageRecurring   Boolean @default(false)
-  canViewReports       Boolean @default(true)
-  canManageSettings    Boolean @default(false)
-  canInviteMembers     Boolean @default(false)
-  canRemoveMembers     Boolean @default(false)
+  id                  String  @id @default(cuid())
+  familyId            String
+  role                String
+  canAddExpense       Boolean @default(true)
+  canEditOwnExpense   Boolean @default(true)
+  canEditAllExpenses  Boolean @default(false)
+  canDeleteExpense    Boolean @default(false)
+  canUploadAttachment Boolean @default(true)
+  canManageCategories Boolean @default(false)
+  canManageRecurring  Boolean @default(false)
+  canViewReports      Boolean @default(true)
+  canManageSettings   Boolean @default(false)
+  canInviteMembers    Boolean @default(false)
+  canRemoveMembers    Boolean @default(false)
 
   family Family @relation(fields: [familyId], references: [id], onDelete: Cascade)
 
@@ -179,6 +180,6 @@ model Attachment {
   uploadedBy String
   createdAt  DateTime @default(now())
 
-  expense   Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
-  uploadedByUser User @relation("AttachmentUploader", fields: [uploadedBy], references: [id])
+  expense        Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  uploadedByUser User    @relation("AttachmentUploader", fields: [uploadedBy], references: [id])
 }

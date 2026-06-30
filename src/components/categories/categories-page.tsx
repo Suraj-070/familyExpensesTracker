@@ -171,7 +171,7 @@ export function CategoriesPage() {
                     <div className="mt-3 flex items-center justify-between">
                       <p className="font-medium text-sm">{cat.name}</p>
                       {!cat.isDefault && isAdmin && (
-                        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex items-center gap-0.5">
                           <Button
                             variant="ghost"
                             size="icon"

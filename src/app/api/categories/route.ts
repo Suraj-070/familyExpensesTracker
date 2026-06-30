@@ -32,19 +32,22 @@ export async function GET(req: NextRequest) {
       orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
     })
 
-    return NextResponse.json(
-      categories.map(c => ({
+    // Wrapped in {categories:[]} — store reads data.categories
+    return NextResponse.json({
+      categories: categories.map(c => ({
         ...c,
         expenseCount: c._count.expenses,
-      }))
-    )
+      })),
+    })
   } catch (error) {
     console.error('Categories GET error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
 
-// POST /api/categories - Create category (admin only)
+// POST /api/categories - Create category
+// Any family member can create (needed for auto-create-on-expense flow);
+// only admins can edit/delete existing ones (enforced in [id]/route.ts)
 export async function POST(req: NextRequest) {
   try {
     const auth = extractAuth(req)
@@ -62,15 +65,21 @@ export async function POST(req: NextRequest) {
     const membership = await db.familyMember.findUnique({
       where: { familyId_userId: { familyId, userId: auth.userId } },
     })
-    if (!membership || membership.role !== 'admin') {
-      return NextResponse.json({ error: 'Only admins can manage categories' }, { status: 403 })
+    if (!membership) {
+      return NextResponse.json({ error: 'Not a member of this family' }, { status: 403 })
     }
 
+    // If category already exists, just return it instead of erroring —
+    // this makes the auto-create-on-expense flow idempotent under race conditions
     const existing = await db.category.findUnique({
       where: { familyId_name: { familyId, name } },
+      include: { _count: { select: { expenses: true } } },
     })
     if (existing) {
-      return NextResponse.json({ error: 'Category already exists' }, { status: 409 })
+      return NextResponse.json(
+        { category: { ...existing, expenseCount: existing._count.expenses } },
+        { status: 200 }
+      )
     }
 
     const category = await db.$transaction(async (tx) => {
@@ -93,8 +102,15 @@ export async function POST(req: NextRequest) {
       return c
     })
 
-    return NextResponse.json({ ...category, expenseCount: 0 }, { status: 201 })
+    return NextResponse.json(
+      { category: { ...category, expenseCount: 0 } },
+      { status: 201 }
+    )
   } catch (error) {
+    // Handle unique constraint race (two requests create same category simultaneously)
+    if (error instanceof Error && error.message.includes('Unique constraint')) {
+      return NextResponse.json({ error: 'Category already exists, please retry' }, { status: 409 })
+    }
     console.error('Categories POST error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }

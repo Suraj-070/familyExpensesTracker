@@ -2,52 +2,54 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { extractAuth } from '@/lib/auth'
 
-// GET /api/expenses?familyId=xxx&category=xxx&paidStatus=xxx&dateFrom=xxx&dateTo=xxx&search=xxx&addedBy=xxx&whoPaid=xxx
 export async function GET(req: NextRequest) {
   try {
     const auth = extractAuth(req)
-    if (!auth) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const { searchParams } = new URL(req.url)
     const familyId = searchParams.get('familyId')
+    if (!familyId) return NextResponse.json({ error: 'familyId is required' }, { status: 400 })
 
-    if (!familyId) {
-      return NextResponse.json({ error: 'familyId is required' }, { status: 400 })
-    }
-
-    // Verify membership
     const membership = await db.familyMember.findUnique({
       where: { familyId_userId: { familyId, userId: auth.userId } },
     })
-    if (!membership) {
-      return NextResponse.json({ error: 'Not a member of this family' }, { status: 403 })
-    }
+    if (!membership) return NextResponse.json({ error: 'Not a member of this family' }, { status: 403 })
 
     const where: Record<string, unknown> = { familyId }
 
-    const category = searchParams.get('category')
+    // Support both 'categoryId' (store) and 'category' (legacy)
+    const category = searchParams.get('categoryId') || searchParams.get('category')
     if (category) where.categoryId = category
 
     const paidStatus = searchParams.get('paidStatus')
-    if (paidStatus) where.paidStatus = paidStatus
+    if (paidStatus && paidStatus !== 'all') where.paidStatus = paidStatus
 
     const dateFrom = searchParams.get('dateFrom')
     const dateTo = searchParams.get('dateTo')
     if (dateFrom || dateTo) {
       where.expenseDate = {
         ...(dateFrom ? { gte: new Date(dateFrom) } : {}),
-        ...(dateTo ? { lte: new Date(dateTo) } : {}),
+        ...(dateTo ? { lte: new Date(dateTo + 'T23:59:59') } : {}),
       }
     }
 
+    const amountMin = searchParams.get('amountMin')
+    const amountMax = searchParams.get('amountMax')
+    if (amountMin || amountMax) {
+      where.amount = {
+        ...(amountMin ? { gte: parseFloat(amountMin) } : {}),
+        ...(amountMax ? { lte: parseFloat(amountMax) } : {}),
+      }
+    }
+
+    // PostgreSQL requires mode: insensitive for case-insensitive search
     const search = searchParams.get('search')
     if (search) {
       where.OR = [
-        { title: { contains: search } },
-        { description: { contains: search } },
-        { notes: { contains: search } },
+        { title: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } },
+        { notes: { contains: search, mode: 'insensitive' } },
       ]
     }
 
@@ -61,14 +63,14 @@ export async function GET(req: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '50')
     const skip = (page - 1) * limit
 
-    const [expenses, total] = await Promise.all([
+    const [expenses, count] = await Promise.all([
       db.expense.findMany({
         where,
         include: {
           category: true,
           whoPaid: { select: { id: true, name: true, avatarUrl: true } },
           addedBy: { select: { id: true, name: true, avatarUrl: true } },
-          attachments: { select: { id: true, fileName: true, fileUrl: true, fileType: true } },
+          attachments: { select: { id: true, fileName: true, fileUrl: true, fileType: true, fileSize: true } },
         },
         orderBy: { expenseDate: 'desc' },
         skip,
@@ -77,77 +79,48 @@ export async function GET(req: NextRequest) {
       db.expense.count({ where }),
     ])
 
-    return NextResponse.json({
-      expenses,
-      total,
-      page,
-      totalPages: Math.ceil(total / limit),
-    })
+    return NextResponse.json({ expenses, count, total: count, page, totalPages: Math.ceil(count / limit) })
   } catch (error) {
     console.error('Expenses GET error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
 
-// POST /api/expenses - Create expense
 export async function POST(req: NextRequest) {
   try {
     const auth = extractAuth(req)
-    if (!auth) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const body = await req.json()
-    const {
-      title,
-      description,
-      amount,
-      expenseDate,
-      categoryId,
-      paidStatus = 'unpaid',
-      dueDate,
-      whoPaidId,
-      notes,
-    } = body
+    const { title, description, amount, expenseDate, categoryId, paidStatus = 'unpaid', dueDate, whoPaidId, notes, familyId } = body
 
-    if (!title || !amount || !expenseDate || !categoryId || !whoPaidId) {
-      return NextResponse.json(
-        { error: 'title, amount, expenseDate, categoryId, and whoPaidId are required' },
-        { status: 400 }
-      )
+    if (!title || !amount || !expenseDate || !familyId) {
+      return NextResponse.json({ error: 'title, amount, expenseDate and familyId are required' }, { status: 400 })
     }
 
-    // Verify membership
     const membership = await db.familyMember.findUnique({
-      where: { familyId_userId: { familyId: body.familyId, userId: auth.userId } },
+      where: { familyId_userId: { familyId, userId: auth.userId } },
     })
-    if (!membership) {
-      return NextResponse.json({ error: 'Not a member of this family' }, { status: 403 })
-    }
+    if (!membership) return NextResponse.json({ error: 'Not a member of this family' }, { status: 403 })
 
-    // Verify whoPaidId is a member
-    const paidByMember = await db.familyMember.findUnique({
-      where: { familyId_userId: { familyId: body.familyId, userId: whoPaidId } },
-    })
-    if (!paidByMember) {
-      return NextResponse.json({ error: 'Who paid must be a family member' }, { status: 400 })
-    }
+    // whoPaidId defaults to current user if not provided
+    const paidById = whoPaidId || auth.userId
 
     const expense = await db.$transaction(async (tx) => {
       const e = await tx.expense.create({
         data: {
           title,
-          description,
+          ...(description !== undefined && { description }),
           amount: parseFloat(amount),
           expenseDate: new Date(expenseDate),
-          categoryId,
+          ...(categoryId ? { categoryId } : {}),
           paidStatus,
           dueDate: dueDate ? new Date(dueDate) : null,
           paidDate: paidStatus === 'paid' ? new Date() : null,
-          whoPaidId,
+          whoPaidId: paidById,
           addedById: auth.userId,
-          familyId: body.familyId,
-          notes,
+          familyId,
+          ...(notes !== undefined && { notes }),
         },
         include: {
           category: true,
@@ -158,7 +131,7 @@ export async function POST(req: NextRequest) {
 
       await tx.activityLog.create({
         data: {
-          familyId: body.familyId,
+          familyId,
           userId: auth.userId,
           action: 'expense_added',
           entityType: 'expense',

@@ -59,9 +59,9 @@ export async function POST(req: NextRequest) {
       familyId,
     } = body
 
-    if (!title || !amount || !categoryId || !frequency || !startDate || !familyId) {
+    if (!title || !amount || !frequency || !startDate || !familyId) {
       return NextResponse.json(
-        { error: 'title, amount, categoryId, frequency, startDate, and familyId are required' },
+        { error: 'title, amount, frequency, startDate, and familyId are required' },
         { status: 400 }
       )
     }
@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
         data: {
           title,
           amount: parseFloat(amount),
-          categoryId,
+          ...(categoryId ? { categoryId } : {}),
           frequency,
           startDate: start,
           endDate: endDate ? new Date(endDate) : null,

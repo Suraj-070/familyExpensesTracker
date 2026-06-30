@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { extractAuth, generateToken, generateInviteCode } from '@/lib/auth'
+import { extractAuth, generateToken } from '@/lib/auth'
 
 const DEFAULT_CATEGORIES = [
   { name: 'Food', icon: 'utensils', color: '#f97316' },
@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Family name is required' }, { status: 400 })
     }
 
-    const inviteCode = generateInviteCode()
+    const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase()
 
     const family = await db.$transaction(async (tx) => {
       const f = await tx.family.create({
@@ -193,14 +193,13 @@ export async function GET(req: NextRequest) {
       orderBy: { joinedAt: 'desc' },
     })
 
-    return NextResponse.json(
-      memberships.map(m => ({
-        ...m.family,
-        role: m.role,
-        memberCount: m.family._count.members,
-        expenseCount: m.family._count.expenses,
-      }))
-    )
+    const families = memberships.map(m => ({
+      ...m.family,
+      role: m.role,
+      memberCount: m.family._count.members,
+      expenseCount: m.family._count.expenses,
+    }))
+    return NextResponse.json({ families })
   } catch (error) {
     console.error('Families GET error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

@@ -78,10 +78,13 @@ export function RecurringPage() {
 
   const isAdmin = members.find((m) => m.userId === user?.id)?.role === 'admin'
 
+  const { currentFamily: cf } = useStore()
+
   useEffect(() => {
+    if (!cf) return
     setLoading(true)
     Promise.all([loadRecurringExpenses(), loadCategories()]).finally(() => setLoading(false))
-  }, [loadRecurringExpenses, loadCategories])
+  }, [cf?.id])
 
   const resetForm = () => {
     setTitle('')
@@ -125,7 +128,7 @@ export function RecurringPage() {
         categoryId: categoryId || undefined,
         startDate,
         endDate: endDate || undefined,
-        paidBy: paidBy || undefined,
+        // paidBy removed — not in schema (use createdBy instead)
       }
       if (editId) {
         await updateRecurringExpense(editId, data)
