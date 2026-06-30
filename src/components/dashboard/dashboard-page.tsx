@@ -254,7 +254,7 @@ export function DashboardPage() {
                   <p className="text-sm">All clear! No unpaid bills.</p>
                 </div>
               ) : (
-                <ScrollArea className="max-h-52">
+                <ScrollArea className="h-52 pr-2">
                   <div className="grid gap-2">
                     {unpaidExpenses.map(e => (
                       <div key={e.id} className="flex items-center justify-between rounded-lg border p-3 hover:bg-accent/50 transition-colors">
@@ -288,7 +288,7 @@ export function DashboardPage() {
                   <p className="text-sm">No activity yet</p>
                 </div>
               ) : (
-                <ScrollArea className="max-h-52">
+                <ScrollArea className="h-52 pr-2">
                   <div className="grid gap-3">
                     {activities.slice(0, 8).map(a => (
                       <div key={a.id} className="flex items-start gap-3">
