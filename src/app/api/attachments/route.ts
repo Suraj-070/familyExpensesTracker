@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { extractAuth } from '@/lib/auth'
 import { supabaseAdmin, ATTACHMENTS_BUCKET } from '@/lib/supabase-admin'
+import { getMembershipAndPermissions } from '@/lib/permissions'
 
 // POST /api/attachments — upload file for an expense
 export async function POST(req: NextRequest) {
@@ -25,11 +26,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Expense not found' }, { status: 404 })
     }
 
-    const membership = await db.familyMember.findUnique({
-      where: { familyId_userId: { familyId: expense.familyId, userId: auth.userId } },
-    })
-    if (!membership) {
+    const access = await getMembershipAndPermissions(expense.familyId, auth.userId)
+    if (!access) {
       return NextResponse.json({ error: 'Not a member of this family' }, { status: 403 })
+    }
+    if (!access.permissions.canUploadAttachment) {
+      return NextResponse.json({ error: 'You do not have permission to upload attachments' }, { status: 403 })
     }
 
     // Validate file type
@@ -45,7 +47,6 @@ export async function POST(req: NextRequest) {
     }
 
     // Build storage path: familyId/expenseId/timestamp_filename
-    const ext = file.name.split('.').pop()
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
     const storagePath = `${expense.familyId}/${expenseId}/${Date.now()}_${safeName}`
 
@@ -112,7 +113,6 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
     }
 
-    // Only uploader or admin can delete
     const membership = await db.familyMember.findUnique({
       where: { familyId_userId: { familyId: attachment.expense.familyId, userId: auth.userId } },
     })
@@ -128,7 +128,6 @@ export async function DELETE(req: NextRequest) {
 
     // Extract storage path from URL
     const url = new URL(attachment.fileUrl)
-    // URL pattern: .../storage/v1/object/public/expense-attachments/PATH
     const storagePathMatch = url.pathname.match(/\/storage\/v1\/object\/public\/expense-attachments\/(.+)/)
     if (storagePathMatch) {
       const storagePath = storagePathMatch[1]

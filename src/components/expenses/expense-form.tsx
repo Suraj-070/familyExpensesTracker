@@ -11,7 +11,10 @@ import { Switch } from '@/components/ui/switch'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { Loader2, Upload, X, FileText, ImageIcon } from 'lucide-react'
+import {
+  Dialog, DialogContent,
+} from '@/components/ui/dialog'
+import { Loader2, Upload, X, FileText, ZoomIn } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface UploadedAttachment {
@@ -34,6 +37,97 @@ const AUTO_COLORS = [
   '#ec4899', '#06b6d4', '#f97316', '#6366f1',
   '#14b8a6', '#3b82f6', '#84cc16', '#64748b',
 ]
+
+/** Thumbnail tile for an already-uploaded attachment — shows a real image
+ * preview if it's a photo, or a file icon for PDFs. Click to enlarge images. */
+function AttachmentThumb({
+  fileUrl, fileType, fileName, fileSize, onRemove, onZoom,
+}: {
+  fileUrl: string; fileType: string; fileName: string; fileSize: number
+  onRemove: () => void; onZoom?: () => void
+}) {
+  const isImage = fileType.startsWith('image/')
+  return (
+    <div className="group relative h-20 w-20 shrink-0 rounded-lg border overflow-hidden bg-muted">
+      {isImage ? (
+        <button
+          type="button"
+          onClick={onZoom}
+          className="block h-full w-full"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element -- external Supabase Storage URL, not a local asset */}
+          <img src={fileUrl} alt={fileName} className="h-full w-full object-cover" />
+          <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 transition-colors">
+            <ZoomIn className="h-4 w-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+          </div>
+        </button>
+      ) : (
+        <a
+          href={fileUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex h-full w-full flex-col items-center justify-center gap-1 px-1 text-center"
+        >
+          <FileText className="h-6 w-6 text-red-500" />
+          <span className="text-[9px] text-muted-foreground line-clamp-2 leading-tight">{fileName}</span>
+        </a>
+      )}
+      <button
+        type="button"
+        onClick={onRemove}
+        className="absolute top-0.5 right-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80"
+        aria-label="Remove attachment"
+      >
+        <X className="h-3 w-3" />
+      </button>
+      <span className="absolute bottom-0 left-0 right-0 bg-black/50 px-1 py-0.5 text-[9px] text-white text-center">
+        {formatBytes(fileSize)}
+      </span>
+    </div>
+  )
+}
+
+/** Same tile but for a File object that hasn't been uploaded yet — generates
+ * a local object URL preview so the user sees the actual photo before upload completes. */
+function PendingThumb({ file, onRemove }: { file: File; onRemove: () => void }) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const isImage = file.type.startsWith('image/')
+
+  useEffect(() => {
+    if (!isImage) return
+    const url = URL.createObjectURL(file)
+    setPreviewUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [file, isImage])
+
+  return (
+    <div className="group relative h-20 w-20 shrink-0 rounded-lg border border-dashed overflow-hidden bg-muted/50">
+      {isImage && previewUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element -- local blob URL preview, not a static asset
+        <img src={previewUrl} alt={file.name} className="h-full w-full object-cover opacity-80" />
+      ) : (
+        <div className="flex h-full w-full flex-col items-center justify-center gap-1 px-1 text-center">
+          <FileText className="h-6 w-6 text-red-400" />
+          <span className="text-[9px] text-muted-foreground line-clamp-2 leading-tight">{file.name}</span>
+        </div>
+      )}
+      <div className="absolute inset-x-0 top-0 bg-amber-500/90 text-center text-[8px] font-medium text-white py-0.5">
+        PENDING
+      </div>
+      <button
+        type="button"
+        onClick={onRemove}
+        className="absolute top-0.5 right-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80"
+        aria-label="Remove file"
+      >
+        <X className="h-3 w-3" />
+      </button>
+      <span className="absolute bottom-0 left-0 right-0 bg-black/50 px-1 py-0.5 text-[9px] text-white text-center">
+        {formatBytes(file.size)}
+      </span>
+    </div>
+  )
+}
 
 export function ExpenseForm({ onClose, editingExpense }: ExpenseFormProps) {
   const {
@@ -58,6 +152,8 @@ export function ExpenseForm({ onClose, editingExpense }: ExpenseFormProps) {
   const [attachments, setAttachments] = useState<UploadedAttachment[]>([])
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null)
+  const [zoomedImage, setZoomedImage] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -99,7 +195,6 @@ export function ExpenseForm({ onClose, editingExpense }: ExpenseFormProps) {
 
     const color = AUTO_COLORS[Math.floor(Math.random() * AUTO_COLORS.length)]
     const created = await createCategory({ name: trimmed, icon: 'tag', color })
-    // createCategory throws on failure (caught by handleSubmit), returns {id,...} on success
     return created?.id
   }
 
@@ -119,6 +214,8 @@ export function ExpenseForm({ onClose, editingExpense }: ExpenseFormProps) {
   const uploadFiles = async (expenseId: string) => {
     if (pendingFiles.length === 0) return
     setUploading(true)
+    setUploadProgress({ done: 0, total: pendingFiles.length })
+    let done = 0
     for (const file of pendingFiles) {
       const fd = new FormData()
       fd.append('file', file)
@@ -132,13 +229,21 @@ export function ExpenseForm({ onClose, editingExpense }: ExpenseFormProps) {
         if (!res.ok) {
           const err = await res.json().catch(() => ({}))
           toast.error(`Upload failed: ${err.error || file.name}`)
+        } else {
+          const result = await res.json()
+          if (result.attachment) {
+            setAttachments(prev => [...prev, result.attachment])
+          }
         }
       } catch {
         toast.error(`Failed to upload ${file.name}`)
       }
+      done += 1
+      setUploadProgress({ done, total: pendingFiles.length })
     }
     setPendingFiles([])
     setUploading(false)
+    setUploadProgress(null)
   }
 
   const deleteAttachment = async (id: string) => {
@@ -150,6 +255,9 @@ export function ExpenseForm({ onClose, editingExpense }: ExpenseFormProps) {
       if (res.ok) {
         setAttachments(prev => prev.filter(a => a.id !== id))
         toast.success('Attachment removed')
+      } else {
+        const err = await res.json().catch(() => ({}))
+        toast.error(err.error || 'Failed to remove attachment')
       }
     } catch { toast.error('Failed to remove') }
   }
@@ -166,7 +274,6 @@ export function ExpenseForm({ onClose, editingExpense }: ExpenseFormProps) {
       try {
         categoryId = await resolveCategoryId(categoryInput)
       } catch (catErr) {
-        // Category creation failed — surface it clearly, don't silently continue
         toast.error(catErr instanceof Error ? catErr.message : 'Failed to create category')
         setLoading(false)
         return
@@ -325,48 +432,29 @@ export function ExpenseForm({ onClose, editingExpense }: ExpenseFormProps) {
         />
       </div>
 
+      {/* Attachments — now with real thumbnail previews instead of plain filename links */}
       <div className="grid gap-2">
         <Label>Attachments</Label>
 
-        {attachments.length > 0 && (
-          <div className="space-y-1.5">
+        {(attachments.length > 0 || pendingFiles.length > 0) && (
+          <div className="flex flex-wrap gap-2">
             {attachments.map((att) => (
-              <div key={att.id} className="flex items-center gap-2 rounded-lg border p-2 text-sm">
-                {att.fileType.startsWith('image/') ? (
-                  <ImageIcon className="h-4 w-4 shrink-0 text-blue-500" />
-                ) : (
-                  <FileText className="h-4 w-4 shrink-0 text-red-500" />
-                )}
-                <a href={att.fileUrl} target="_blank" rel="noopener noreferrer"
-                  className="flex-1 truncate hover:underline text-primary text-xs">
-                  {att.fileName}
-                </a>
-                <span className="text-xs text-muted-foreground shrink-0">{formatBytes(att.fileSize)}</span>
-                <Button type="button" variant="ghost" size="icon" className="h-6 w-6 shrink-0"
-                  onClick={() => deleteAttachment(att.id)}>
-                  <X className="h-3 w-3" />
-                </Button>
-              </div>
+              <AttachmentThumb
+                key={att.id}
+                fileUrl={att.fileUrl}
+                fileType={att.fileType}
+                fileName={att.fileName}
+                fileSize={att.fileSize}
+                onRemove={() => deleteAttachment(att.id)}
+                onZoom={() => setZoomedImage(att.fileUrl)}
+              />
             ))}
-          </div>
-        )}
-
-        {pendingFiles.length > 0 && (
-          <div className="space-y-1.5">
             {pendingFiles.map((file, idx) => (
-              <div key={idx} className="flex items-center gap-2 rounded-lg border border-dashed p-2 bg-muted/30">
-                {file.type.startsWith('image/') ? (
-                  <ImageIcon className="h-4 w-4 shrink-0 text-blue-400" />
-                ) : (
-                  <FileText className="h-4 w-4 shrink-0 text-red-400" />
-                )}
-                <span className="flex-1 truncate text-xs">{file.name}</span>
-                <span className="text-xs text-muted-foreground shrink-0">{formatBytes(file.size)}</span>
-                <Button type="button" variant="ghost" size="icon" className="h-6 w-6 shrink-0"
-                  onClick={() => setPendingFiles(prev => prev.filter((_, i) => i !== idx))}>
-                  <X className="h-3 w-3" />
-                </Button>
-              </div>
+              <PendingThumb
+                key={idx}
+                file={file}
+                onRemove={() => setPendingFiles(prev => prev.filter((_, i) => i !== idx))}
+              />
             ))}
           </div>
         )}
@@ -377,7 +465,7 @@ export function ExpenseForm({ onClose, editingExpense }: ExpenseFormProps) {
         >
           <div className="text-center space-y-1">
             <Upload className="h-5 w-5 mx-auto text-muted-foreground" />
-            <p className="text-xs text-muted-foreground">Click to upload images or PDFs (max 10MB)</p>
+            <p className="text-xs text-muted-foreground">Click to upload receipt photos or PDFs (max 10MB)</p>
           </div>
         </div>
         <input
@@ -388,6 +476,21 @@ export function ExpenseForm({ onClose, editingExpense }: ExpenseFormProps) {
           multiple
           onChange={handleFileSelect}
         />
+
+        {/* Upload progress — replaces the old generic "Uploading..." text-only state */}
+        {uploadProgress && (
+          <div className="space-y-1">
+            <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+              <div
+                className="h-full bg-primary transition-all duration-300"
+                style={{ width: `${(uploadProgress.done / uploadProgress.total) * 100}%` }}
+              />
+            </div>
+            <p className="text-[10px] text-muted-foreground text-right">
+              Uploading {uploadProgress.done} of {uploadProgress.total}
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="flex gap-2 pt-1">
@@ -401,6 +504,16 @@ export function ExpenseForm({ onClose, editingExpense }: ExpenseFormProps) {
           {uploading ? 'Uploading...' : isEditing ? 'Update' : 'Add Expense'}
         </Button>
       </div>
+
+      {/* Lightbox — click any image thumbnail to view full size */}
+      <Dialog open={!!zoomedImage} onOpenChange={(open) => { if (!open) setZoomedImage(null) }}>
+        <DialogContent className="max-w-2xl p-2">
+          {zoomedImage && (
+            // eslint-disable-next-line @next/next/no-img-element -- external Supabase Storage URL
+            <img src={zoomedImage} alt="Attachment preview" className="w-full h-auto rounded-lg" />
+          )}
+        </DialogContent>
+      </Dialog>
     </form>
   )
 }

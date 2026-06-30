@@ -21,7 +21,7 @@ import {
 import { Separator } from '@/components/ui/separator'
 import {
   Search, Plus, X, Edit3, Trash2, CreditCard, Receipt, SlidersHorizontal,
-  FileText, Loader2,
+  FileText, Loader2, Paperclip,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
@@ -261,6 +261,15 @@ export function ExpensesPage() {
                             : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'}`}>
                             {expense.paidStatus === 'paid' ? 'Paid' : 'Unpaid'}
                           </Badge>
+                          {expense.attachments && expense.attachments.length > 0 && (
+                            <span
+                              className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground shrink-0"
+                              title={`${expense.attachments.length} attachment${expense.attachments.length !== 1 ? 's' : ''}`}
+                            >
+                              <Paperclip className="h-3 w-3" />
+                              {expense.attachments.length > 1 && expense.attachments.length}
+                            </span>
+                          )}
                         </div>
                         <p className="text-xs text-muted-foreground mt-0.5 truncate">
                           {expense.category?.name || 'Uncategorized'}
@@ -377,14 +386,24 @@ export function ExpensesPage() {
               )}
               {detailExpense.attachments && detailExpense.attachments.length > 0 && (
                 <div>
-                  <p className="text-muted-foreground text-xs mb-1">Attachments</p>
-                  <div className="space-y-1">
+                  <p className="text-muted-foreground text-xs mb-1">
+                    Attachments ({detailExpense.attachments.length})
+                  </p>
+                  <div className="flex flex-wrap gap-2">
                     {detailExpense.attachments.map((att) => (
-                      <a key={att.id} href={att.fileUrl} target="_blank" rel="noopener noreferrer"
-                        className="flex items-center gap-2 text-sm text-primary hover:underline">
-                        <FileText className="h-3.5 w-3.5" />
-                        {att.fileName}
-                      </a>
+                      att.fileType.startsWith('image/') ? (
+                        <a key={att.id} href={att.fileUrl} target="_blank" rel="noopener noreferrer"
+                          className="block h-16 w-16 rounded-lg border overflow-hidden hover:opacity-80 transition-opacity">
+                          {/* eslint-disable-next-line @next/next/no-img-element -- external Supabase Storage URL */}
+                          <img src={att.fileUrl} alt={att.fileName} className="h-full w-full object-cover" />
+                        </a>
+                      ) : (
+                        <a key={att.id} href={att.fileUrl} target="_blank" rel="noopener noreferrer"
+                          className="flex h-16 w-16 flex-col items-center justify-center gap-1 rounded-lg border bg-muted px-1 text-center hover:bg-accent transition-colors">
+                          <FileText className="h-5 w-5 text-red-500" />
+                          <span className="text-[9px] text-muted-foreground line-clamp-1">{att.fileName}</span>
+                        </a>
+                      )
                     ))}
                   </div>
                 </div>
