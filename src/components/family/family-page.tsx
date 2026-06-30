@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useStore } from '@/store'
+import { useFamilyData, useInvalidateFamilyData } from '@/hooks/use-queries'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -53,18 +54,17 @@ import { motion } from 'framer-motion'
 export function FamilyPage() {
   const {
     currentFamily,
-    families,
-    members,
     user,
-    loadMembers,
-    loadFamilies,
     createFamily,
     joinFamily,
     removeMember,
     updateMemberRole,
   } = useStore()
 
-  const [loading, setLoading] = useState(true)
+  // React Query — cached + persisted, so this renders instantly from localStorage
+  // on refresh instead of showing a skeleton every time.
+  const { families, members, isLoading: loading } = useFamilyData()
+  const invalidateFamilyData = useInvalidateFamilyData()
   const [showCreate, setShowCreate] = useState(false)
   const [showJoin, setShowJoin] = useState(false)
   const [familyName, setFamilyName] = useState('')
@@ -75,11 +75,6 @@ export function FamilyPage() {
 
   const isAdmin = members.find((m) => m.userId === user?.id)?.role === 'admin'
 
-  useEffect(() => {
-    setLoading(true)
-    Promise.all([loadFamilies(), loadMembers()]).finally(() => setLoading(false))
-  }, [loadFamilies, loadMembers])
-
   const handleCreate = async () => {
     if (!familyName.trim()) {
       toast.error('Family name is required')
@@ -88,6 +83,7 @@ export function FamilyPage() {
     setSaving(true)
     try {
       await createFamily(familyName.trim())
+      invalidateFamilyData()
       toast.success('Family created!')
       setShowCreate(false)
       setFamilyName('')
@@ -106,6 +102,7 @@ export function FamilyPage() {
     setSaving(true)
     try {
       await joinFamily(inviteCode.trim())
+      invalidateFamilyData()
       toast.success('Joined family!')
       setShowJoin(false)
       setInviteCode('')
@@ -129,6 +126,7 @@ export function FamilyPage() {
     if (!removeId) return
     try {
       await removeMember(removeId)
+      invalidateFamilyData()
       toast.success('Member removed')
       setRemoveId(null)
     } catch {
@@ -139,6 +137,7 @@ export function FamilyPage() {
   const handleChangeRole = async (userId: string, role: 'admin' | 'member') => {
     try {
       await updateMemberRole(userId, role)
+      invalidateFamilyData()
       toast.success('Role updated')
     } catch {
       toast.error('Failed to update role')

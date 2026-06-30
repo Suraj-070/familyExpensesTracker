@@ -48,15 +48,34 @@ import { ProfilePage } from '@/components/profile/profile-page'
 import { SettingsPage } from '@/components/settings/settings-page'
 import { NotificationPanel } from '@/components/layout/notification-panel'
 
-const navItems: { icon: typeof LayoutDashboard; label: string; page: PageName }[] = [
-  { icon: LayoutDashboard, label: 'Dashboard', page: 'dashboard' },
-  { icon: Receipt, label: 'Expenses', page: 'expenses' },
-  { icon: Tag, label: 'Categories', page: 'categories' },
-  { icon: Repeat, label: 'Recurring', page: 'recurring' },
-  { icon: Users, label: 'Family', page: 'family' },
-  { icon: BarChart3, label: 'Reports', page: 'reports' },
-  { icon: Search, label: 'Search', page: 'search' },
-  { icon: Settings, label: 'Settings', page: 'settings' },
+// Grouped into logical sections instead of one flat list (#24).
+// "Expenses" section covers Expenses + its sub-concerns (Categories, Recurring),
+// "Family" section covers Family + Reports + Search.
+const navGroups: { label: string; items: { icon: typeof LayoutDashboard; label: string; page: PageName }[] }[] = [
+  {
+    label: '',
+    items: [{ icon: LayoutDashboard, label: 'Dashboard', page: 'dashboard' }],
+  },
+  {
+    label: 'Expenses',
+    items: [
+      { icon: Receipt, label: 'All Expenses', page: 'expenses' },
+      { icon: Tag, label: 'Categories', page: 'categories' },
+      { icon: Repeat, label: 'Recurring', page: 'recurring' },
+    ],
+  },
+  {
+    label: 'Family',
+    items: [
+      { icon: Users, label: 'Members', page: 'family' },
+      { icon: BarChart3, label: 'Reports', page: 'reports' },
+      { icon: Search, label: 'Search', page: 'search' },
+    ],
+  },
+  {
+    label: '',
+    items: [{ icon: Settings, label: 'Settings', page: 'settings' }],
+  },
 ]
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
@@ -84,31 +103,42 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       </div>
       <Separator className="mx-4 w-auto" />
       <ScrollArea className="flex-1 px-3 py-3">
-        <nav className="grid gap-1" role="navigation" aria-label="Main navigation">
-          {navItems.map((item) => {
-            const Icon = item.icon
-            const isActive = currentPage === item.page
-            return (
-              <button
-                key={item.page}
-                onClick={() => handleNav(item.page)}
-                className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all hover:bg-accent ${
-                  isActive
-                    ? 'bg-accent text-accent-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                <Icon className="h-4 w-4" />
-                {item.label}
-              </button>
-            )
-          })}
+        <nav role="navigation" aria-label="Main navigation" className="grid gap-4">
+          {navGroups.map((group, gi) => (
+            <div key={gi} className="grid gap-1">
+              {group.label && (
+                <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                  {group.label}
+                </p>
+              )}
+              {group.items.map((item) => {
+                const Icon = item.icon
+                const isActive = currentPage === item.page
+                return (
+                  <button
+                    key={item.page}
+                    onClick={() => handleNav(item.page)}
+                    aria-current={isActive ? 'page' : undefined}
+                    className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all hover:bg-accent ${
+                      isActive
+                        ? 'bg-accent text-accent-foreground'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {item.label}
+                  </button>
+                )
+              })}
+            </div>
+          ))}
         </nav>
       </ScrollArea>
       <Separator className="mx-4 w-auto" />
       <div className="p-3 grid gap-1">
         <button
           onClick={() => handleNav('profile')}
+          aria-current={currentPage === 'profile' ? 'page' : undefined}
           className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all hover:bg-accent ${
             currentPage === 'profile'
               ? 'bg-accent text-accent-foreground'
@@ -171,6 +201,14 @@ export function AppShell() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
+      {/* Skip to content link — visually hidden until focused, helps keyboard users (#25) */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:rounded-lg focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-primary-foreground"
+      >
+        Skip to content
+      </a>
+
       {/* Desktop Sidebar */}
       <aside className="hidden lg:flex lg:w-64 lg:flex-col lg:border-r lg:bg-card lg:fixed lg:inset-y-0 lg:z-30">
         <SidebarContent />
@@ -209,7 +247,7 @@ export function AppShell() {
                   variant="ghost"
                   size="icon"
                   onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-                  aria-label="Toggle theme"
+                  aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
                 >
                   <Sun className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
                   <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
@@ -224,7 +262,7 @@ export function AppShell() {
             {/* User Menu */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="relative h-9 w-9 rounded-full">
+                <Button variant="ghost" className="relative h-9 w-9 rounded-full" aria-label="User menu">
                   <Avatar className="h-9 w-9">
                     <AvatarFallback className="bg-gradient-to-br from-emerald-500 to-teal-600 text-white text-xs font-semibold">
                       {initials}
@@ -257,7 +295,7 @@ export function AppShell() {
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 overflow-y-auto">
+        <main id="main-content" className="flex-1 overflow-y-auto" tabIndex={-1}>
           <AnimatePresence mode="wait">
             <motion.div
               key={currentPage}

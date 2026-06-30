@@ -10,14 +10,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { Loader2, Settings, Users, Shield, Trash2, Save, Copy, Check } from 'lucide-react'
@@ -53,16 +47,20 @@ const DEFAULT_MEMBER_PERMS: Permission = {
 }
 
 export function SettingsPage() {
-  const { currentFamily, members, user, token, loadFamilies } = useStore()
+  const { currentFamily, members, user, token, updateFamilyName, logout } = useStore()
   const [familyName, setFamilyName] = useState(currentFamily?.name || '')
   const [nameLoading, setNameLoading] = useState(false)
   const [perms, setPerms] = useState<Permission>(DEFAULT_MEMBER_PERMS)
   const [permsLoading, setPermsLoading] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [deletingFamily, setDeletingFamily] = useState(false)
 
   const isAdmin = members.find((m) => m.userId === user?.id)?.role === 'admin'
 
-  // Load existing permissions for member role
+  useEffect(() => {
+    setFamilyName(currentFamily?.name || '')
+  }, [currentFamily?.id, currentFamily?.name])
+
   useEffect(() => {
     if (!currentFamily || !token) return
     fetch(`/api/permissions?familyId=${currentFamily.id}&role=member`, {
@@ -85,16 +83,10 @@ export function SettingsPage() {
 
   const saveFamilyName = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!familyName.trim() || !currentFamily || !token) return
+    if (!familyName.trim() || !currentFamily) return
     setNameLoading(true)
     try {
-      const res = await fetch(`/api/families/${currentFamily.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ name: familyName.trim() }),
-      })
-      if (!res.ok) throw new Error((await res.json()).error || 'Failed')
-      await loadFamilies()
+      await updateFamilyName(familyName.trim())
       toast.success('Family name updated')
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to update')
@@ -113,11 +105,29 @@ export function SettingsPage() {
         body: JSON.stringify({ ...perms, familyId: currentFamily.id, role: 'member' }),
       })
       if (!res.ok) throw new Error((await res.json()).error || 'Failed')
-      toast.success('Permissions saved')
+      toast.success('Permissions saved — now actively enforced for all members')
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to save')
     } finally {
       setPermsLoading(false)
+    }
+  }
+
+  const handleDeleteFamily = async () => {
+    if (!currentFamily || !token) return
+    setDeletingFamily(true)
+    try {
+      const res = await fetch(`/api/families/${currentFamily.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error((await res.json()).error || 'Failed to delete family')
+      toast.success('Family deleted')
+      // Force a full reload so the store re-initializes against whatever family (if any) remains
+      window.location.href = '/'
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete family')
+      setDeletingFamily(false)
     }
   }
 
@@ -128,11 +138,11 @@ export function SettingsPage() {
   const permRows: { key: keyof Permission; label: string; desc: string }[] = [
     { key: 'canAddExpense', label: 'Add Expenses', desc: 'Members can add new expenses' },
     { key: 'canEditOwnExpense', label: 'Edit Own Expenses', desc: 'Members can edit expenses they added' },
-    { key: 'canEditAllExpenses', label: 'Edit All Expenses', desc: 'Members can edit any expense' },
+    { key: 'canEditAllExpenses', label: 'Edit All Expenses', desc: 'Members can edit any expense in the family' },
     { key: 'canDeleteExpense', label: 'Delete Expenses', desc: 'Members can delete expenses' },
     { key: 'canUploadAttachment', label: 'Upload Attachments', desc: 'Members can upload receipts and files' },
-    { key: 'canManageCategories', label: 'Manage Categories', desc: 'Members can create/edit/delete categories' },
-    { key: 'canManageRecurring', label: 'Manage Recurring', desc: 'Members can manage recurring expenses' },
+    { key: 'canManageCategories', label: 'Manage Categories', desc: 'Members can edit/delete categories (their own auto-created ones always allowed)' },
+    { key: 'canManageRecurring', label: 'Manage Recurring', desc: 'Members can create/edit recurring expenses' },
     { key: 'canViewReports', label: 'View Reports', desc: 'Members can view financial reports' },
     { key: 'canInviteMembers', label: 'Invite Members', desc: 'Members can invite others to the family' },
     { key: 'canRemoveMembers', label: 'Remove Members', desc: 'Members can remove others from the family' },
@@ -175,7 +185,7 @@ export function SettingsPage() {
               />
             </div>
             {isAdmin && (
-              <Button type="submit" size="sm" disabled={nameLoading}>
+              <Button type="submit" size="sm" disabled={nameLoading || familyName.trim() === currentFamily.name}>
                 {nameLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 Save Name
               </Button>
@@ -235,37 +245,44 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Permissions (admin only) */}
-      {isAdmin && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Shield className="h-4 w-4" />
-              Member Permissions
-            </CardTitle>
-            <CardDescription>Control what regular members can do</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {permRows.map(({ key, label, desc }) => (
-              <div key={key} className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="text-sm font-medium">{label}</p>
-                  <p className="text-xs text-muted-foreground">{desc}</p>
-                </div>
-                <Switch
-                  checked={!!perms[key]}
-                  onCheckedChange={() => togglePerm(key)}
-                />
+      {/* Permissions — admin can edit, members can view what's been granted to them */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Shield className="h-4 w-4" />
+            Member Permissions
+          </CardTitle>
+          <CardDescription>
+            {isAdmin
+              ? 'Control what regular members can do — changes apply immediately and are enforced on every action.'
+              : "What you're allowed to do in this family, set by an admin."}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {permRows.map(({ key, label, desc }) => (
+            <div key={key} className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium">{label}</p>
+                <p className="text-xs text-muted-foreground">{desc}</p>
               </div>
-            ))}
-            <Separator />
-            <Button onClick={savePermissions} disabled={permsLoading}>
-              {permsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              Save Permissions
-            </Button>
-          </CardContent>
-        </Card>
-      )}
+              <Switch
+                checked={!!perms[key]}
+                onCheckedChange={() => togglePerm(key)}
+                disabled={!isAdmin}
+              />
+            </div>
+          ))}
+          {isAdmin && (
+            <>
+              <Separator />
+              <Button onClick={savePermissions} disabled={permsLoading}>
+                {permsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                Save Permissions
+              </Button>
+            </>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Danger zone */}
       {isAdmin && (
@@ -280,7 +297,8 @@ export function SettingsPage() {
           <CardContent>
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button variant="destructive" size="sm">
+                <Button variant="destructive" size="sm" disabled={deletingFamily}>
+                  {deletingFamily ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                   Delete Family
                 </Button>
               </AlertDialogTrigger>
@@ -288,14 +306,14 @@ export function SettingsPage() {
                 <AlertDialogHeader>
                   <AlertDialogTitle>Delete family?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This will permanently delete <strong>{currentFamily.name}</strong> and all its expenses, categories, and data. This cannot be undone.
+                    This will permanently delete <strong>{currentFamily.name}</strong> and all its expenses, categories, recurring bills, and member data. This cannot be undone.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
                   <AlertDialogAction
                     className="bg-destructive hover:bg-destructive/90"
-                    onClick={() => toast.error('Delete family coming soon')}
+                    onClick={handleDeleteFamily}
                   >
                     Delete Forever
                   </AlertDialogAction>

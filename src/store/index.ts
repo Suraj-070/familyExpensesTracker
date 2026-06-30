@@ -1,26 +1,15 @@
 import { create } from 'zustand'
 
 export type PageName =
-  | 'login'
-  | 'signup'
-  | 'forgot'
-  | 'dashboard'
-  | 'expenses'
-  | 'add-expense'
-  | 'edit-expense'
-  | 'categories'
-  | 'recurring'
-  | 'family'
-  | 'reports'
-  | 'search'
-  | 'profile'
-  | 'settings'
+  | 'login' | 'signup' | 'forgot' | 'reset' | 'dashboard' | 'expenses'
+  | 'add-expense' | 'edit-expense' | 'categories' | 'recurring'
+  | 'family' | 'reports' | 'search' | 'profile' | 'settings'
 
 export interface User {
   id: string
   name: string
   email: string
-  avatar?: string
+  avatarUrl?: string
   role?: string
 }
 
@@ -37,7 +26,9 @@ export interface FamilyMember {
   familyId: string
   role: 'admin' | 'member'
   joinedAt: string
-  user?: { id: string; name: string; email: string; avatar?: string }
+  user?: { id: string; name: string; email: string; avatarUrl?: string }
+  expenseCount?: number
+  expenseTotal?: number
 }
 
 export interface Category {
@@ -46,6 +37,7 @@ export interface Category {
   icon: string
   color: string
   isDefault: boolean
+  createdBy?: string | null
   familyId: string
 }
 
@@ -56,33 +48,36 @@ export interface Expense {
   amount: number
   expenseDate: string
   dueDate?: string
-  categoryId: string
+  categoryId?: string
   category?: Category
-  paidBy?: string
-  paidByName?: string
+  whoPaidId?: string
+  whoPaid?: { id: string; name: string; avatarUrl?: string }
+  addedById?: string
+  addedBy?: { id: string; name: string; avatarUrl?: string }
   paidStatus: 'paid' | 'unpaid'
   notes?: string
-  receiptUrl?: string
+  attachments?: { id: string; fileName: string; fileUrl: string; fileType: string; fileSize: number }[]
   familyId: string
   createdAt: string
   updatedAt: string
-  recurringExpenseId?: string
 }
 
 export interface RecurringExpense {
   id: string
   title: string
   amount: number
-  frequency: 'weekly' | 'monthly' | 'yearly'
-  categoryId: string
+  frequency: 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'yearly'
+  categoryId?: string
   category?: Category
   startDate: string
   endDate?: string
   nextDueDate?: string
+  whoPaidId?: string
+  whoPaid?: { id: string; name: string; avatarUrl?: string }
+  createdBy?: string
+  creator?: { id: string; name: string; avatarUrl?: string }
   isActive: boolean
   familyId: string
-  paidBy?: string
-  paidByName?: string
   createdAt: string
 }
 
@@ -93,17 +88,16 @@ export interface Notification {
   type: 'info' | 'success' | 'warning' | 'error'
   isRead: boolean
   createdAt: string
-  link?: string
 }
 
 export interface Activity {
   id: string
   action: string
-  description: string
+  details?: string
   userId: string
-  userName: string
   familyId: string
   createdAt: string
+  user?: { id: string; name: string; avatarUrl?: string }
 }
 
 export interface ExpenseFilters {
@@ -137,6 +131,7 @@ export interface CategoryReport {
 
 export interface TrendData {
   month: string
+  label: string
   total: number
   paid: number
   unpaid: number
@@ -152,23 +147,28 @@ interface AppState {
   logout: () => void
   updateProfile: (data: Partial<User> & { currentPassword?: string; newPassword?: string }) => Promise<void>
   forgotPassword: (email: string) => Promise<void>
+  resetPassword: (token: string, newPassword: string) => Promise<void>
   initAuth: () => Promise<void>
 
   // Navigation
   currentPage: PageName
   editingExpenseId: string | null
+  selectedExpense: Expense | null
   navigate: (page: PageName, expenseId?: string) => void
+  setSelectedExpense: (expense: Expense | null) => void
 
   // Family
   currentFamily: Family | null
   families: Family[]
   members: FamilyMember[]
-  selectFamily: (family: Family) => void
+  selectFamily: (family: Family) => Promise<void>
   loadFamilies: () => Promise<void>
   loadMembers: () => Promise<void>
   createFamily: (name: string) => Promise<void>
   joinFamily: (inviteCode: string) => Promise<void>
+  updateFamilyName: (name: string) => Promise<void>
   removeMember: (userId: string) => Promise<void>
+  leaveFamily: () => Promise<void>
   updateMemberRole: (userId: string, role: 'admin' | 'member') => Promise<void>
 
   // Expenses
@@ -177,7 +177,7 @@ interface AppState {
   expenseFilters: ExpenseFilters
   setFilters: (filters: Partial<ExpenseFilters>) => void
   loadExpenses: () => Promise<void>
-  createExpense: (data: Partial<Expense>) => Promise<void>
+  createExpense: (data: Partial<Expense>) => Promise<string | null>
   updateExpense: (id: string, data: Partial<Expense>) => Promise<void>
   deleteExpense: (id: string) => Promise<void>
   togglePaidStatus: (id: string) => Promise<void>
@@ -185,7 +185,7 @@ interface AppState {
   // Categories
   categories: Category[]
   loadCategories: () => Promise<void>
-  createCategory: (data: { name: string; icon: string; color: string }) => Promise<{ id: string } | null>
+  createCategory: (data: { name: string; icon: string; color: string }) => Promise<Category | null>
   updateCategory: (id: string, data: { name: string; icon: string; color: string }) => Promise<void>
   deleteCategory: (id: string) => Promise<void>
 
@@ -195,6 +195,8 @@ interface AppState {
   createRecurringExpense: (data: Partial<RecurringExpense>) => Promise<void>
   updateRecurringExpense: (id: string, data: Partial<RecurringExpense>) => Promise<void>
   deleteRecurringExpense: (id: string) => Promise<void>
+  previewRecurringDates: (startDate: string, frequency: string, count?: number) => Promise<string[]>
+  getRecurringDetail: (id: string) => Promise<{ recurring: RecurringExpense; generatedExpenses: { id: string; expenseDate: string; amount: number; paidStatus: string }[] } | null>
 
   // Reports
   reportSummary: ReportSummary | null
@@ -211,8 +213,6 @@ interface AppState {
   // UI
   sidebarOpen: boolean
   toggleSidebar: () => void
-  selectedExpense: Expense | null
-  setSelectedExpense: (expense: Expense | null) => void
 
   // Notifications
   notifications: Notification[]
@@ -229,29 +229,52 @@ const API = (path: string, options: RequestInit = {}) => {
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
+      ...((options.headers as Record<string, string>) || {}),
     },
   })
 }
 
+async function loadFamilyData(familyId: string, set: (s: Partial<AppState>) => void) {
+  const [memRes, catRes] = await Promise.all([
+    API(`/api/families/${familyId}/members`),
+    API(`/api/categories?familyId=${familyId}`),
+  ])
+  const updates: Partial<AppState> = {}
+  if (memRes.ok) {
+    const d = await memRes.json()
+    updates.members = d.members || []
+  }
+  if (catRes.ok) {
+    const d = await catRes.json()
+    updates.categories = d.categories || []
+  }
+  set(updates)
+}
+
 export const useStore = create<AppState>((set, get) => ({
-  // Auth
-  user: null,
-  token: null,
-  isAuthenticated: false,
+  user: null, token: null, isAuthenticated: false,
 
   login: async (email, password) => {
     const res = await API('/api/auth', {
       method: 'POST',
       body: JSON.stringify({ action: 'login', email, password }),
     })
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}))
-      throw new Error(data.error || 'Login failed')
-    }
-    const data = await res.json()
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data.error || 'Login failed')
     localStorage.setItem('token', data.token)
     set({ token: data.token, user: data.user, isAuthenticated: true, currentPage: 'dashboard' })
+
+    const famRes = await API('/api/families')
+    if (famRes.ok) {
+      const famData = await famRes.json()
+      const families = famData.families || []
+      if (families.length > 0) {
+        set({ families, currentFamily: families[0] })
+        await loadFamilyData(families[0].id, set)
+      } else {
+        set({ families, currentPage: 'family' })
+      }
+    }
   },
 
   signup: async (name, email, password) => {
@@ -259,66 +282,49 @@ export const useStore = create<AppState>((set, get) => ({
       method: 'POST',
       body: JSON.stringify({ action: 'signup', name, email, password }),
     })
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}))
-      throw new Error(data.error || 'Signup failed')
-    }
-    const data = await res.json()
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data.error || 'Signup failed')
     localStorage.setItem('token', data.token)
-    set({ token: data.token, user: data.user, isAuthenticated: true, currentPage: 'dashboard' })
+    set({ token: data.token, user: data.user, isAuthenticated: true, currentPage: 'family' })
   },
 
   logout: () => {
     localStorage.removeItem('token')
     set({
-      user: null,
-      token: null,
-      isAuthenticated: false,
-      currentPage: 'login',
-      currentFamily: null,
-      families: [],
-      members: [],
-      expenses: [],
-      categories: [],
-      recurringExpenses: [],
-      notifications: [],
-      activities: [],
-      reportSummary: null,
-      categoryReport: [],
-      trendData: [],
+      user: null, token: null, isAuthenticated: false, currentPage: 'login',
+      currentFamily: null, families: [], members: [], expenses: [],
+      categories: [], recurringExpenses: [], notifications: [],
+      activities: [], reportSummary: null, categoryReport: [], trendData: [],
+      expenseFilters: {}, unreadCount: 0, sidebarOpen: false,
     })
   },
 
   updateProfile: async (data) => {
-    const res = await API('/api/auth', {
-      method: 'PUT',
-      body: JSON.stringify({ action: 'profile', ...data }),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(err.error || 'Update failed')
-    }
-    const result = await res.json()
-    set({ user: result.user })
+    const res = await API('/api/auth', { method: 'PUT', body: JSON.stringify(data) })
+    const result = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(result.error || 'Update failed')
+    if (result.user) set({ user: result.user })
   },
 
   forgotPassword: async (email) => {
-    const res = await API('/api/auth', {
-      method: 'POST',
-      body: JSON.stringify({ action: 'forgot', email }),
-    })
+    const res = await API('/api/auth', { method: 'POST', body: JSON.stringify({ action: 'forgot', email }) })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
       throw new Error(data.error || 'Request failed')
     }
   },
 
+  resetPassword: async (token, newPassword) => {
+    const res = await API('/api/auth', { method: 'POST', body: JSON.stringify({ action: 'reset', token, newPassword }) })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(data.error || 'Reset failed')
+    }
+  },
+
   initAuth: async () => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
-    if (!token) {
-      set({ isAuthenticated: false, currentPage: 'login' })
-      return
-    }
+    if (!token) { set({ isAuthenticated: false, currentPage: 'login' }); return }
     try {
       const res = await API('/api/auth?action=me')
       if (!res.ok) {
@@ -328,18 +334,17 @@ export const useStore = create<AppState>((set, get) => ({
       }
       const data = await res.json()
       set({ token, user: data.user, isAuthenticated: true, currentPage: 'dashboard' })
-      // Load families
+
       const famRes = await API('/api/families')
       if (famRes.ok) {
         const famData = await famRes.json()
-        if (famData.families?.length > 0) {
-          set({ families: famData.families, currentFamily: famData.families[0] })
-          // Load members
-          const memRes = await API(`/api/families/${famData.families[0].id}/members`)
-          if (memRes.ok) {
-            const memData = await memRes.json()
-            set({ members: memData.members || [] })
-          }
+        const families = famData.families || []
+        if (families.length > 0) {
+          const currentFamily = families[0]
+          set({ families, currentFamily })
+          await loadFamilyData(currentFamily.id, set)
+        } else {
+          set({ families, currentPage: 'family' })
         }
       }
     } catch {
@@ -348,33 +353,27 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
-  // Navigation
-  currentPage: 'login',
-  editingExpenseId: null,
+  currentPage: 'login', editingExpenseId: null, selectedExpense: null,
 
-  navigate: (page, expenseId) => {
-    set({ currentPage: page, ...(expenseId ? { editingExpenseId: expenseId } : {}), sidebarOpen: false })
-  },
+  navigate: (page, expenseId) => set({ currentPage: page, editingExpenseId: expenseId || null, sidebarOpen: false }),
+  setSelectedExpense: (expense) => set({ selectedExpense: expense }),
 
-  // Family
-  currentFamily: null,
-  families: [],
-  members: [],
+  currentFamily: null, families: [], members: [],
 
   selectFamily: async (family) => {
     set({ currentFamily: family, expenses: [], categories: [], recurringExpenses: [], activities: [] })
-    const memRes = await API(`/api/families/${family.id}/members`)
-    if (memRes.ok) {
-      const memData = await memRes.json()
-      set({ members: memData.members || [] })
-    }
+    await loadFamilyData(family.id, set)
   },
 
   loadFamilies: async () => {
     const res = await API('/api/families')
     if (res.ok) {
       const data = await res.json()
-      set({ families: data.families || [] })
+      const families = data.families || []
+      set((state) => ({
+        families,
+        currentFamily: state.currentFamily ?? (families.length > 0 ? families[0] : null),
+      }))
     }
   },
 
@@ -389,29 +388,44 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   createFamily: async (name) => {
-    const res = await API('/api/families', {
-      method: 'POST',
-      body: JSON.stringify({ name }),
-    })
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}))
-      throw new Error(data.error || 'Failed to create family')
-    }
-    const data = await res.json()
-    set((state) => ({ families: [...state.families, data.family], currentFamily: data.family }))
+    const res = await API('/api/families', { method: 'POST', body: JSON.stringify({ name }) })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data.error || 'Failed to create family')
+    if (data.token) localStorage.setItem('token', data.token)
+    set((state) => ({
+      families: [...state.families, data.family],
+      currentFamily: data.family,
+      token: data.token || state.token,
+    }))
+    await loadFamilyData(data.family.id, set)
   },
 
   joinFamily: async (inviteCode) => {
-    const res = await API('/api/families', {
-      method: 'POST',
-      body: JSON.stringify({ action: 'join', inviteCode }),
+    const res = await API('/api/families', { method: 'POST', body: JSON.stringify({ action: 'join', inviteCode }) })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data.error || 'Failed to join family')
+    if (data.token) localStorage.setItem('token', data.token)
+    set((state) => ({
+      families: [...state.families, data.family],
+      currentFamily: data.family,
+      token: data.token || state.token,
+    }))
+    await loadFamilyData(data.family.id, set)
+  },
+
+  updateFamilyName: async (name) => {
+    const { currentFamily } = get()
+    if (!currentFamily) return
+    const res = await API(`/api/families/${currentFamily.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
     })
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}))
-      throw new Error(data.error || 'Failed to join family')
-    }
-    const data = await res.json()
-    set((state) => ({ families: [...state.families, data.family] }))
+    const result = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(result.error || 'Failed to update family')
+    set((state) => ({
+      currentFamily: state.currentFamily ? { ...state.currentFamily, name: result.family.name } : null,
+      families: state.families.map((f) => (f.id === currentFamily.id ? { ...f, name: result.family.name } : f)),
+    }))
   },
 
   removeMember: async (userId) => {
@@ -421,8 +435,31 @@ export const useStore = create<AppState>((set, get) => ({
       method: 'DELETE',
       body: JSON.stringify({ userId }),
     })
-    if (res.ok) {
-      set((state) => ({ members: state.members.filter((m) => m.userId !== userId) }))
+    const result = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(result.error || 'Failed to remove member')
+    set((state) => ({ members: state.members.filter((m) => m.userId !== userId) }))
+  },
+
+  leaveFamily: async () => {
+    const { currentFamily, user } = get()
+    if (!currentFamily || !user) return
+    const res = await API(`/api/families/${currentFamily.id}/members`, {
+      method: 'DELETE',
+      body: JSON.stringify({ userId: user.id }),
+    })
+    const result = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(result.error || 'Failed to leave family')
+    set((state) => {
+      const remainingFamilies = state.families.filter((f) => f.id !== currentFamily.id)
+      return {
+        families: remainingFamilies,
+        currentFamily: remainingFamilies[0] || null,
+        members: [],
+        currentPage: remainingFamilies.length > 0 ? 'family' : 'family',
+      }
+    })
+    if (get().currentFamily) {
+      await loadFamilyData(get().currentFamily!.id, set)
     }
   },
 
@@ -433,21 +470,16 @@ export const useStore = create<AppState>((set, get) => ({
       method: 'PUT',
       body: JSON.stringify({ userId, role }),
     })
-    if (res.ok) {
-      set((state) => ({
-        members: state.members.map((m) => (m.userId === userId ? { ...m, role } : m)),
-      }))
-    }
+    const result = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(result.error || 'Failed to update role')
+    set((state) => ({
+      members: state.members.map((m) => (m.userId === userId ? { ...m, role } : m)),
+    }))
   },
 
-  // Expenses
-  expenses: [],
-  expenseCount: 0,
-  expenseFilters: {},
+  expenses: [], expenseCount: 0, expenseFilters: {},
 
-  setFilters: (filters) => {
-    set((state) => ({ expenseFilters: { ...state.expenseFilters, ...filters } }))
-  },
+  setFilters: (filters) => set((state) => ({ expenseFilters: { ...state.expenseFilters, ...filters } })),
 
   loadExpenses: async () => {
     const { currentFamily, expenseFilters } = get()
@@ -461,58 +493,78 @@ export const useStore = create<AppState>((set, get) => ({
     if (expenseFilters.dateTo) params.set('dateTo', expenseFilters.dateTo)
     if (expenseFilters.amountMin) params.set('amountMin', String(expenseFilters.amountMin))
     if (expenseFilters.amountMax) params.set('amountMax', String(expenseFilters.amountMax))
-
-    const res = await API(`/api/expenses?${params.toString()}`)
+    const res = await API(`/api/expenses?${params}`)
     if (res.ok) {
       const data = await res.json()
-      set({ expenses: data.expenses || [], expenseCount: data.count || 0 })
+      set({ expenses: data.expenses || [], expenseCount: data.count || data.total || 0 })
     }
   },
 
   createExpense: async (data) => {
     const { currentFamily } = get()
-    if (!currentFamily) return
+    if (!currentFamily) return null
+    // Optimistic: store doesn't inject a fake row (expenses need server-generated relations
+    // like category/whoPaid/addedBy to render correctly) — instead we keep the loading state
+    // short by awaiting directly and refreshing once.
     const res = await API('/api/expenses', {
       method: 'POST',
       body: JSON.stringify({ ...data, familyId: currentFamily.id }),
     })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(err.error || 'Failed to create expense')
-    }
-    get().loadExpenses()
+    const result = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(result.error || 'Failed to create expense')
+    await get().loadExpenses()
+    return result.expense?.id ?? null
   },
 
   updateExpense: async (id, data) => {
-    const res = await API(`/api/expenses/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    })
+    // Optimistic update: apply the change to local state immediately, roll back on failure
+    const prev = get().expenses
+    set((state) => ({
+      expenses: state.expenses.map((e) => (e.id === id ? { ...e, ...data } as Expense : e)),
+    }))
+    const res = await API(`/api/expenses/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+    const result = await res.json().catch(() => ({}))
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(err.error || 'Failed to update expense')
+      set({ expenses: prev })
+      throw new Error(result.error || 'Failed to update expense')
     }
     get().loadExpenses()
   },
 
   deleteExpense: async (id) => {
+    // Optimistic delete with rollback on failure (undo handled at UI layer via toast)
+    const prev = get().expenses
+    set((state) => ({ expenses: state.expenses.filter((e) => e.id !== id) }))
     const res = await API(`/api/expenses/${id}`, { method: 'DELETE' })
-    if (res.ok) {
-      set((state) => ({ expenses: state.expenses.filter((e) => e.id !== id) }))
+    if (!res.ok) {
+      set({ expenses: prev })
+      const result = await res.json().catch(() => ({}))
+      throw new Error(result.error || 'Failed to delete expense')
     }
   },
 
   togglePaidStatus: async (id) => {
-    const res = await API(`/api/expenses/${id}`, {
+    const current = get().expenses.find((e) => e.id === id)
+    if (!current) return
+    const newStatus = current.paidStatus === 'paid' ? 'unpaid' : 'paid'
+    // Optimistic toggle
+    set((state) => ({
+      expenses: state.expenses.map((e) => (e.id === id ? { ...e, paidStatus: newStatus } : e)),
+    }))
+    const res = await API(`/api/expenses/${id}/pay`, {
       method: 'PATCH',
-      body: JSON.stringify({ action: 'togglePaid' }),
+      body: JSON.stringify({ paidStatus: newStatus }),
     })
-    if (res.ok) {
-      get().loadExpenses()
+    if (!res.ok) {
+      // Roll back
+      set((state) => ({
+        expenses: state.expenses.map((e) => (e.id === id ? { ...e, paidStatus: current.paidStatus } : e)),
+      }))
+      const result = await res.json().catch(() => ({}))
+      throw new Error(result.error || 'Failed to update status')
     }
   },
 
-  // Categories
   categories: [],
 
   loadCategories: async () => {
@@ -521,7 +573,6 @@ export const useStore = create<AppState>((set, get) => ({
     const res = await API(`/api/categories?familyId=${currentFamily.id}`)
     if (res.ok) {
       const data = await res.json()
-      // API may return {categories:[]} or a raw array depending on version
       const categories = Array.isArray(data) ? data : (data.categories || [])
       set({ categories })
     }
@@ -535,42 +586,32 @@ export const useStore = create<AppState>((set, get) => ({
       body: JSON.stringify({ ...data, familyId: currentFamily.id }),
     })
     const result = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      throw new Error(result.error || 'Failed to create category')
-    }
+    if (!res.ok) throw new Error(result.error || 'Failed to create category')
     await get().loadCategories()
-    // API returns {category: {...}} — return its id so callers can use it immediately
     return result.category ?? null
   },
 
   updateCategory: async (id, data) => {
-    const res = await API(`/api/categories/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    })
-    if (res.ok) {
-      get().loadCategories()
-    }
+    const res = await API(`/api/categories/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+    const result = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(result.error || 'Failed to update category')
+    get().loadCategories()
   },
 
   deleteCategory: async (id) => {
     const res = await API(`/api/categories/${id}`, { method: 'DELETE' })
-    if (res.ok) {
-      set((state) => ({ categories: state.categories.filter((c) => c.id !== id) }))
-    }
+    const result = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(result.error || 'Failed to delete category')
+    set((state) => ({ categories: state.categories.filter((c) => c.id !== id) }))
   },
 
-  // Recurring
   recurringExpenses: [],
 
   loadRecurringExpenses: async () => {
     const { currentFamily } = get()
     if (!currentFamily) return
     const res = await API(`/api/recurring?familyId=${currentFamily.id}`)
-    if (res.ok) {
-      const data = await res.json()
-      set({ recurringExpenses: data.recurring || [] })
-    }
+    if (res.ok) { const data = await res.json(); set({ recurringExpenses: data.recurring || [] }) }
   },
 
   createRecurringExpense: async (data) => {
@@ -580,123 +621,112 @@ export const useStore = create<AppState>((set, get) => ({
       method: 'POST',
       body: JSON.stringify({ ...data, familyId: currentFamily.id }),
     })
-    if (res.ok) {
-      get().loadRecurringExpenses()
-    }
+    const result = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(result.error || 'Failed to create recurring expense')
+    get().loadRecurringExpenses()
   },
 
   updateRecurringExpense: async (id, data) => {
-    const res = await API(`/api/recurring/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    })
-    if (res.ok) {
-      get().loadRecurringExpenses()
-    }
+    const res = await API(`/api/recurring/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+    const result = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(result.error || 'Failed to update recurring expense')
+    get().loadRecurringExpenses()
   },
 
   deleteRecurringExpense: async (id) => {
     const res = await API(`/api/recurring/${id}`, { method: 'DELETE' })
-    if (res.ok) {
-      set((state) => ({ recurringExpenses: state.recurringExpenses.filter((r) => r.id !== id) }))
+    const result = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(result.error || 'Failed to delete recurring expense')
+    set((state) => ({ recurringExpenses: state.recurringExpenses.filter((r) => r.id !== id) }))
+  },
+
+  previewRecurringDates: async (startDate, frequency, count = 3) => {
+    try {
+      const res = await API('/api/recurring/preview', {
+        method: 'POST',
+        body: JSON.stringify({ startDate, frequency, count }),
+      })
+      if (!res.ok) return []
+      const data = await res.json()
+      return data.dates || []
+    } catch {
+      return []
     }
   },
 
-  // Reports
-  reportSummary: null,
-  categoryReport: [],
-  trendData: [],
+  getRecurringDetail: async (id) => {
+    const res = await API(`/api/recurring/${id}`)
+    if (!res.ok) return null
+    return res.json()
+  },
+
+  reportSummary: null, categoryReport: [], trendData: [],
 
   loadReportSummary: async () => {
     const { currentFamily } = get()
     if (!currentFamily) return
     const res = await API(`/api/reports/summary?familyId=${currentFamily.id}`)
-    if (res.ok) {
-      const data = await res.json()
-      set({ reportSummary: data })
-    }
+    if (res.ok) { const data = await res.json(); set({ reportSummary: data }) }
   },
 
   loadCategoryReport: async () => {
     const { currentFamily } = get()
     if (!currentFamily) return
     const res = await API(`/api/reports/by-category?familyId=${currentFamily.id}`)
-    if (res.ok) {
-      const data = await res.json()
-      set({ categoryReport: data.categories || [] })
-    }
+    if (res.ok) { const data = await res.json(); set({ categoryReport: data.categories || [] }) }
   },
 
   loadTrendData: async (months = 6) => {
     const { currentFamily } = get()
     if (!currentFamily) return
     const res = await API(`/api/reports/trend?familyId=${currentFamily.id}&months=${months}`)
-    if (res.ok) {
-      const data = await res.json()
-      set({ trendData: data.trend || [] })
-    }
+    if (res.ok) { const data = await res.json(); set({ trendData: data.trend || [] }) }
   },
 
-  // Activity
   activities: [],
 
   loadActivities: async () => {
     const { currentFamily } = get()
     if (!currentFamily) return
     const res = await API(`/api/activity?familyId=${currentFamily.id}&limit=10`)
-    if (res.ok) {
-      const data = await res.json()
-      set({ activities: data.activities || [] })
-    }
+    if (res.ok) { const data = await res.json(); set({ activities: data.activities || [] }) }
   },
 
-  // UI
   sidebarOpen: false,
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
-  selectedExpense: null,
-  setSelectedExpense: (expense) => set({ selectedExpense: expense }),
 
-  // Notifications
-  notifications: [],
-  unreadCount: 0,
+  notifications: [], unreadCount: 0,
 
   loadNotifications: async () => {
     const res = await API('/api/notifications')
     if (res.ok) {
       const data = await res.json()
       const notifications = data.notifications || []
-      set({
-        notifications,
-        unreadCount: notifications.filter((n: Notification) => !n.isRead).length,
-      })
+      set({ notifications, unreadCount: notifications.filter((n: Notification) => !n.isRead).length })
     }
   },
 
   markNotificationRead: async (id) => {
-    const res = await API(`/api/notifications/${id}`, { method: 'PATCH', body: JSON.stringify({ isRead: true }) })
-    if (res.ok) {
-      set((state) => ({
-        notifications: state.notifications.map((n) => (n.id === id ? { ...n, isRead: true } : n)),
-        unreadCount: Math.max(0, state.unreadCount - 1),
-      }))
-    }
+    set((state) => ({
+      notifications: state.notifications.map((n) => (n.id === id ? { ...n, isRead: true } : n)),
+      unreadCount: Math.max(0, state.unreadCount - 1),
+    }))
+    const res = await API(`/api/notifications/${id}/read`, { method: 'PUT' })
+    if (!res.ok) get().loadNotifications() // resync on failure
   },
 
   markAllNotificationsRead: async () => {
-    const res = await API('/api/notifications', { method: 'PATCH', body: JSON.stringify({ allRead: true }) })
-    if (res.ok) {
-      set((state) => ({
-        notifications: state.notifications.map((n) => ({ ...n, isRead: true })),
-        unreadCount: 0,
-      }))
-    }
+    set((state) => ({
+      notifications: state.notifications.map((n) => ({ ...n, isRead: true })),
+      unreadCount: 0,
+    }))
+    const res = await API('/api/notifications/read-all', { method: 'PUT' })
+    if (!res.ok) get().loadNotifications()
   },
 }))
 
 export function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
+  return 'Rs. ' + new Intl.NumberFormat('en-NP', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(amount)

@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
 import { useStore, formatCurrency } from '@/store'
+import { useReportsData } from '@/hooks/use-queries'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
@@ -24,7 +24,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts'
-import { DollarSign, CreditCard, AlertCircle, TrendingDown } from 'lucide-react'
+import { Wallet, CreditCard, AlertCircle, TrendingDown } from 'lucide-react'
 import { format } from 'date-fns'
 
 const CHART_COLORS = ['#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316', '#14b8a6']
@@ -46,28 +46,9 @@ function TooltipContent({ active, payload, label }: { active?: boolean; payload?
 }
 
 export function ReportsPage() {
-  const {
-    loadReportSummary,
-    loadCategoryReport,
-    loadTrendData,
-    reportSummary,
-    categoryReport,
-    trendData,
-  } = useStore()
-
-  const [loading, setLoading] = useState(true)
-
-  const { currentFamily } = useStore()
-
-  useEffect(() => {
-    if (!currentFamily) return
-    setLoading(true)
-    Promise.all([
-      loadReportSummary(),
-      loadCategoryReport(),
-      loadTrendData(12),
-    ]).finally(() => setLoading(false))
-  }, [currentFamily?.id])
+  // React Query — cached + persisted to localStorage, renders instantly on
+  // refresh instead of showing a skeleton every time the page is revisited.
+  const { reportSummary, categoryReport, trendData, isLoading: loading } = useReportsData()
 
   if (loading) {
     return (
@@ -101,7 +82,7 @@ export function ReportsPage() {
         <Card>
           <CardContent className="p-4 flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400 flex items-center justify-center shrink-0">
-              <DollarSign className="h-5 w-5" />
+              <Wallet className="h-5 w-5" />
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Total Expenses</p>
@@ -236,7 +217,7 @@ export function ReportsPage() {
                   tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
                   axisLine={false}
                   tickLine={false}
-                  tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+                  tickFormatter={(v) => `Rs.${(v / 1000).toFixed(0)}k`}
                 />
                 <RechartsTooltip content={<TooltipContent />} />
                 <Bar dataKey="paid" name="Paid" fill="#10b981" radius={[4, 4, 0, 0]} />

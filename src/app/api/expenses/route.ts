@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { extractAuth } from '@/lib/auth'
+import { getMembershipAndPermissions } from '@/lib/permissions'
 
 export async function GET(req: NextRequest) {
   try {
@@ -18,7 +19,6 @@ export async function GET(req: NextRequest) {
 
     const where: Record<string, unknown> = { familyId }
 
-    // Support both 'categoryId' (store) and 'category' (legacy)
     const category = searchParams.get('categoryId') || searchParams.get('category')
     if (category) where.categoryId = category
 
@@ -43,7 +43,6 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // PostgreSQL requires mode: insensitive for case-insensitive search
     const search = searchParams.get('search')
     if (search) {
       where.OR = [
@@ -98,12 +97,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'title, amount, expenseDate and familyId are required' }, { status: 400 })
     }
 
-    const membership = await db.familyMember.findUnique({
-      where: { familyId_userId: { familyId, userId: auth.userId } },
-    })
-    if (!membership) return NextResponse.json({ error: 'Not a member of this family' }, { status: 403 })
+    const access = await getMembershipAndPermissions(familyId, auth.userId)
+    if (!access) return NextResponse.json({ error: 'Not a member of this family' }, { status: 403 })
+    if (!access.permissions.canAddExpense) {
+      return NextResponse.json({ error: 'You do not have permission to add expenses' }, { status: 403 })
+    }
 
-    // whoPaidId defaults to current user if not provided
     const paidById = whoPaidId || auth.userId
 
     const expense = await db.$transaction(async (tx) => {
@@ -136,7 +135,7 @@ export async function POST(req: NextRequest) {
           action: 'expense_added',
           entityType: 'expense',
           entityId: e.id,
-          details: `Added expense "${title}" - $${amount}`,
+          details: `Added expense "${title}" - Rs. ${amount}`,
         },
       })
 

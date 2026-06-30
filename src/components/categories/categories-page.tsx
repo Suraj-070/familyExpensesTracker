@@ -8,29 +8,17 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import {
-  Plus,
-  Edit3,
-  Trash2,
-  Tag,
-  Lock,
+  Plus, Edit3, Trash2, Tag, Lock,
+  UtensilsCrossed, Home, Zap, Droplets, Wifi, GraduationCap, Pencil,
+  Stethoscope, Car, Film, ShoppingCart, Shirt, Plane, Gift, Coffee,
+  Dumbbell, PawPrint, Smartphone, Wrench,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -41,14 +29,48 @@ const COLOR_OPTIONS = [
   '#8b5cf6', '#6366f1', '#3b82f6', '#84cc16',
 ]
 
+// Maps the icon key stored in the DB to an actual lucide-react component.
+// Previously every category rendered a generic Tag icon regardless of this
+// value (#29) — this map plus the picker below makes the field meaningful.
+const ICON_MAP: Record<string, typeof Tag> = {
+  'tag': Tag,
+  'utensils': UtensilsCrossed,
+  'home': Home,
+  'zap': Zap,
+  'droplets': Droplets,
+  'wifi': Wifi,
+  'graduation-cap': GraduationCap,
+  'pencil': Pencil,
+  'stethoscope': Stethoscope,
+  'car': Car,
+  'film': Film,
+  'shopping-cart': ShoppingCart,
+  'shirt': Shirt,
+  'plane': Plane,
+  'gift': Gift,
+  'coffee': Coffee,
+  'dumbbell': Dumbbell,
+  'paw-print': PawPrint,
+  'smartphone': Smartphone,
+  'wrench': Wrench,
+}
+
+const ICON_OPTIONS = Object.keys(ICON_MAP)
+
+function CategoryIcon({ icon, className }: { icon: string; className?: string }) {
+  const Icon = ICON_MAP[icon] || Tag
+  return <Icon className={className} />
+}
+
 export function CategoriesPage() {
   const { categories, loadCategories, createCategory, updateCategory, deleteCategory, members, user } = useStore()
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
   const [formName, setFormName] = useState('')
-  const [formIcon, setFormIcon] = useState('shopping-cart')
+  const [formIcon, setFormIcon] = useState('tag')
   const [formColor, setFormColor] = useState('#10b981')
 
   const isAdmin = members.find((m) => m.userId === user?.id)?.role === 'admin'
@@ -58,10 +80,15 @@ export function CategoriesPage() {
     loadCategories().finally(() => setLoading(false))
   }, [loadCategories])
 
+  const canManage = (cat: { isDefault: boolean; createdBy?: string | null }) => {
+    if (cat.isDefault) return isAdmin
+    return isAdmin || cat.createdBy === user?.id
+  }
+
   const openCreate = () => {
     setEditId(null)
     setFormName('')
-    setFormIcon('shopping-cart')
+    setFormIcon('tag')
     setFormColor('#10b981')
     setShowForm(true)
   }
@@ -79,6 +106,7 @@ export function CategoriesPage() {
       toast.error('Category name is required')
       return
     }
+    setSaving(true)
     try {
       if (editId) {
         await updateCategory(editId, { name: formName.trim(), icon: formIcon, color: formColor })
@@ -88,8 +116,10 @@ export function CategoriesPage() {
         toast.success('Category created')
       }
       setShowForm(false)
-    } catch {
-      toast.error('Failed to save category')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save category')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -99,8 +129,8 @@ export function CategoriesPage() {
       await deleteCategory(deleteId)
       toast.success('Category deleted')
       setDeleteId(null)
-    } catch {
-      toast.error('Failed to delete category')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete category')
     }
   }
 
@@ -124,12 +154,10 @@ export function CategoriesPage() {
           <h1 className="text-2xl font-bold tracking-tight">Categories</h1>
           <p className="text-muted-foreground text-sm">Organize your expenses</p>
         </div>
-        {isAdmin && (
-          <Button onClick={openCreate}>
-            <Plus className="h-4 w-4" />
-            Add Category
-          </Button>
-        )}
+        <Button onClick={openCreate}>
+          <Plus className="h-4 w-4" />
+          Add Category
+        </Button>
       </div>
 
       {categories.length === 0 ? (
@@ -137,12 +165,10 @@ export function CategoriesPage() {
           <Tag className="h-12 w-12 text-muted-foreground/30 mb-3" />
           <h3 className="font-medium text-lg mb-1">No categories yet</h3>
           <p className="text-sm text-muted-foreground mb-4">Create categories to organize expenses</p>
-          {isAdmin && (
-            <Button onClick={openCreate}>
-              <Plus className="h-4 w-4" />
-              Create Category
-            </Button>
-          )}
+          <Button onClick={openCreate}>
+            <Plus className="h-4 w-4" />
+            Create Category
+          </Button>
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -155,35 +181,30 @@ export function CategoriesPage() {
                 exit={{ opacity: 0, scale: 0.9 }}
                 transition={{ delay: i * 0.03 }}
               >
-                <Card className="group hover:shadow-md transition-all">
+                <Card className="hover:shadow-md transition-all">
                   <CardContent className="p-4">
                     <div className="flex items-start justify-between">
                       <div
                         className="h-10 w-10 rounded-lg flex items-center justify-center"
                         style={{ backgroundColor: `${cat.color}20`, color: cat.color }}
                       >
-                        <Tag className="h-5 w-5" />
+                        <CategoryIcon icon={cat.icon} className="h-5 w-5" />
                       </div>
                       {cat.isDefault && (
                         <Lock className="h-3.5 w-3.5 text-muted-foreground/50" />
                       )}
                     </div>
                     <div className="mt-3 flex items-center justify-between">
-                      <p className="font-medium text-sm">{cat.name}</p>
-                      {!cat.isDefault && isAdmin && (
-                        <div className="flex items-center gap-0.5">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            onClick={() => openEdit(cat)}
-                          >
+                      <p className="font-medium text-sm truncate">{cat.name}</p>
+                      {canManage(cat) && (
+                        <div className="flex items-center gap-0.5 shrink-0">
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(cat)}>
                             <Edit3 className="h-3 w-3" />
                           </Button>
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-7 w-7 text-destructive"
+                            className="h-7 w-7 text-destructive hover:bg-destructive/10 hover:text-destructive"
                             onClick={() => setDeleteId(cat.id)}
                           >
                             <Trash2 className="h-3 w-3" />
@@ -219,7 +240,33 @@ export function CategoriesPage() {
                 placeholder="Category name"
                 value={formName}
                 onChange={(e) => setFormName(e.target.value)}
+                autoFocus
               />
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Icon</Label>
+              <div className="flex flex-wrap gap-2">
+                {ICON_OPTIONS.map((iconKey) => {
+                  const Icon = ICON_MAP[iconKey]
+                  const isSelected = formIcon === iconKey
+                  return (
+                    <button
+                      key={iconKey}
+                      type="button"
+                      onClick={() => setFormIcon(iconKey)}
+                      className={`h-9 w-9 rounded-lg flex items-center justify-center transition-all border ${
+                        isSelected
+                          ? 'border-primary bg-primary/10 text-primary scale-105'
+                          : 'border-transparent bg-muted text-muted-foreground hover:bg-accent hover:scale-105'
+                      }`}
+                      title={iconKey}
+                    >
+                      <Icon className="h-4 w-4" />
+                    </button>
+                  )
+                })}
+              </div>
             </div>
 
             <div className="grid gap-2">
@@ -238,10 +285,21 @@ export function CategoriesPage() {
                 ))}
               </div>
             </div>
+
+            {/* Live preview */}
+            <div className="flex items-center gap-3 rounded-lg border p-3 bg-muted/30">
+              <div
+                className="h-10 w-10 rounded-lg flex items-center justify-center shrink-0"
+                style={{ backgroundColor: `${formColor}20`, color: formColor }}
+              >
+                <CategoryIcon icon={formIcon} className="h-5 w-5" />
+              </div>
+              <span className="text-sm font-medium">{formName || 'Category name'}</span>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
-            <Button onClick={handleSave}>{editId ? 'Update' : 'Create'}</Button>
+            <Button onClick={handleSave} disabled={saving}>{editId ? 'Update' : 'Create'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

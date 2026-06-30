@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { extractAuth } from '@/lib/auth'
+import { getMembershipAndPermissions } from '@/lib/permissions'
 
 // GET /api/recurring?familyId=xxx
 export async function GET(req: NextRequest) {
@@ -29,6 +30,7 @@ export async function GET(req: NextRequest) {
       include: {
         category: true,
         creator: { select: { id: true, name: true, avatarUrl: true } },
+        whoPaid: { select: { id: true, name: true, avatarUrl: true } },
       },
       orderBy: { nextDueDate: 'asc' },
     })
@@ -40,7 +42,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST /api/recurring - Create recurring expense (admin only)
+// POST /api/recurring - Create recurring expense (requires canManageRecurring permission)
 export async function POST(req: NextRequest) {
   try {
     const auth = extractAuth(req)
@@ -56,6 +58,7 @@ export async function POST(req: NextRequest) {
       frequency,
       startDate,
       endDate,
+      whoPaidId,
       familyId,
     } = body
 
@@ -66,14 +69,14 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const membership = await db.familyMember.findUnique({
-      where: { familyId_userId: { familyId, userId: auth.userId } },
-    })
-    if (!membership || membership.role !== 'admin') {
-      return NextResponse.json({ error: 'Only admins can manage recurring expenses' }, { status: 403 })
+    const access = await getMembershipAndPermissions(familyId, auth.userId)
+    if (!access) {
+      return NextResponse.json({ error: 'Not a member of this family' }, { status: 403 })
+    }
+    if (!access.permissions.canManageRecurring) {
+      return NextResponse.json({ error: 'You do not have permission to manage recurring expenses' }, { status: 403 })
     }
 
-    // Calculate next due date
     const start = new Date(startDate)
     const nextDueDate = calculateNextDueDate(start, frequency)
 
@@ -87,12 +90,14 @@ export async function POST(req: NextRequest) {
           startDate: start,
           endDate: endDate ? new Date(endDate) : null,
           nextDueDate,
+          ...(whoPaidId ? { whoPaidId } : {}),
           createdBy: auth.userId,
           familyId,
         },
         include: {
           category: true,
           creator: { select: { id: true, name: true, avatarUrl: true } },
+          whoPaid: { select: { id: true, name: true, avatarUrl: true } },
         },
       })
 
@@ -103,7 +108,7 @@ export async function POST(req: NextRequest) {
           action: 'recurring_created',
           entityType: 'recurring',
           entityId: r.id,
-          details: `Created recurring expense "${title}" - $${amount} (${frequency})`,
+          details: `Created recurring expense "${title}" - Rs. ${amount} (${frequency})`,
         },
       })
 
@@ -117,7 +122,8 @@ export async function POST(req: NextRequest) {
   }
 }
 
-function calculateNextDueDate(from: Date, frequency: string): Date {
+// Exported so the [id] route and the "preview next dates" endpoint can reuse it
+export function calculateNextDueDate(from: Date, frequency: string): Date {
   const next = new Date(from)
   switch (frequency) {
     case 'weekly':

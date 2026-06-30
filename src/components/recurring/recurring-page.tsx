@@ -8,83 +8,69 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Switch } from '@/components/ui/switch'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import {
-  Plus,
-  Edit3,
-  Trash2,
-  Repeat,
-  CalendarClock,
-  Loader2,
-  Pause,
-  Play,
+  Plus, Edit3, Trash2, Repeat, Loader2, Pause, Play, CalendarCheck2, Info,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { format } from 'date-fns'
 import { motion, AnimatePresence } from 'framer-motion'
 
+type Frequency = 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'yearly'
+
 export function RecurringPage() {
   const {
-    recurringExpenses,
-    categories,
-    members,
-    user,
-    loadRecurringExpenses,
-    loadCategories,
-    createRecurringExpense,
-    updateRecurringExpense,
-    deleteRecurringExpense,
+    recurringExpenses, categories, members, user,
+    loadRecurringExpenses, loadCategories,
+    createRecurringExpense, updateRecurringExpense, deleteRecurringExpense,
+    previewRecurringDates, currentFamily,
   } = useStore()
 
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [togglingId, setTogglingId] = useState<string | null>(null)
 
-  // Form state
   const [title, setTitle] = useState('')
   const [amount, setAmount] = useState('')
-  const [frequency, setFrequency] = useState<'weekly' | 'monthly' | 'yearly'>('monthly')
+  const [frequency, setFrequency] = useState<Frequency>('monthly')
   const [categoryId, setCategoryId] = useState('')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
-  const [paidBy, setPaidBy] = useState('')
+  const [whoPaidId, setWhoPaidId] = useState('')
   const [saving, setSaving] = useState(false)
+  const [previewDates, setPreviewDates] = useState<string[]>([])
 
   const isAdmin = members.find((m) => m.userId === user?.id)?.role === 'admin'
 
-  const { currentFamily: cf } = useStore()
-
   useEffect(() => {
-    if (!cf) return
+    if (!currentFamily) return
     setLoading(true)
     Promise.all([loadRecurringExpenses(), loadCategories()]).finally(() => setLoading(false))
-  }, [cf?.id])
+  }, [currentFamily?.id])
+
+  // Live preview of the next 3 occurrence dates as the user fills the form (#34)
+  useEffect(() => {
+    if (!startDate || !frequency) {
+      setPreviewDates([])
+      return
+    }
+    const t = setTimeout(async () => {
+      const dates = await previewRecurringDates(startDate, frequency, 3)
+      setPreviewDates(dates)
+    }, 200)
+    return () => clearTimeout(t)
+  }, [startDate, frequency])
 
   const resetForm = () => {
     setTitle('')
@@ -93,8 +79,9 @@ export function RecurringPage() {
     setCategoryId('')
     setStartDate(new Date().toISOString().split('T')[0])
     setEndDate('')
-    setPaidBy('')
+    setWhoPaidId(user?.id || '')
     setEditId(null)
+    setPreviewDates([])
   }
 
   const openCreate = () => {
@@ -106,11 +93,11 @@ export function RecurringPage() {
     setEditId(r.id)
     setTitle(r.title)
     setAmount(String(r.amount))
-    setFrequency(r.frequency)
-    setCategoryId(r.categoryId)
+    setFrequency(r.frequency as Frequency)
+    setCategoryId(r.categoryId || '')
     setStartDate(r.startDate.split('T')[0])
     setEndDate(r.endDate?.split('T')[0] || '')
-    setPaidBy(r.paidBy || '')
+    setWhoPaidId(r.whoPaidId || r.whoPaid?.id || '')
     setShowForm(true)
   }
 
@@ -128,7 +115,7 @@ export function RecurringPage() {
         categoryId: categoryId || undefined,
         startDate,
         endDate: endDate || undefined,
-        // paidBy removed — not in schema (use createdBy instead)
+        whoPaidId: whoPaidId || undefined,
       }
       if (editId) {
         await updateRecurringExpense(editId, data)
@@ -138,8 +125,8 @@ export function RecurringPage() {
         toast.success('Recurring expense created')
       }
       setShowForm(false)
-    } catch {
-      toast.error('Failed to save')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save')
     } finally {
       setSaving(false)
     }
@@ -151,18 +138,33 @@ export function RecurringPage() {
       await deleteRecurringExpense(deleteId)
       toast.success('Recurring expense deleted')
       setDeleteId(null)
-    } catch {
-      toast.error('Failed to delete')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete')
     }
   }
 
   const handleToggleActive = async (id: string, isActive: boolean) => {
+    setTogglingId(id)
     try {
       await updateRecurringExpense(id, { isActive: !isActive })
-      toast.success(isActive ? 'Paused' : 'Activated')
-    } catch {
-      toast.error('Failed to update')
+      toast.success(
+        isActive
+          ? 'Paused — no new bills will generate until resumed'
+          : 'Resumed — future bills will generate again'
+      )
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update')
+    } finally {
+      setTogglingId(null)
     }
+  }
+
+  const frequencyLabel: Record<Frequency, string> = {
+    weekly: 'Weekly',
+    biweekly: 'Biweekly',
+    monthly: 'Monthly',
+    quarterly: 'Quarterly',
+    yearly: 'Yearly',
   }
 
   if (loading) {
@@ -220,10 +222,10 @@ export function RecurringPage() {
                         <Repeat className="h-5 w-5" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <p className="font-medium text-sm truncate">{r.title}</p>
-                          <Badge variant="secondary" className="text-[10px] capitalize shrink-0">
-                            {r.frequency}
+                          <Badge variant="secondary" className="text-[10px] shrink-0">
+                            {frequencyLabel[r.frequency as Frequency] || r.frequency}
                           </Badge>
                           <Badge
                             variant="secondary"
@@ -236,8 +238,9 @@ export function RecurringPage() {
                             {r.isActive ? 'Active' : 'Paused'}
                           </Badge>
                         </div>
-                        <p className="text-xs text-muted-foreground mt-0.5">
+                        <p className="text-xs text-muted-foreground mt-0.5 truncate">
                           {r.category?.name || 'Uncategorized'}
+                          {r.whoPaid?.name && ` · ${r.whoPaid.name} pays`}
                           {r.nextDueDate && ` · Next: ${format(new Date(r.nextDueDate), 'MMM d, yyyy')}`}
                         </p>
                       </div>
@@ -251,21 +254,24 @@ export function RecurringPage() {
                             size="icon"
                             className="h-8 w-8"
                             onClick={() => handleToggleActive(r.id, r.isActive)}
+                            disabled={togglingId === r.id}
+                            title={r.isActive ? 'Pause — stops future bills, keeps history' : 'Resume — future bills generate again'}
                           >
-                            {r.isActive ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                            {togglingId === r.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : r.isActive ? (
+                              <Pause className="h-3.5 w-3.5" />
+                            ) : (
+                              <Play className="h-3.5 w-3.5" />
+                            )}
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            onClick={() => openEdit(r)}
-                          >
+                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(r)}>
                             <Edit3 className="h-3.5 w-3.5" />
                           </Button>
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 text-destructive"
+                            className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
                             onClick={() => setDeleteId(r.id)}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -283,7 +289,7 @@ export function RecurringPage() {
 
       {/* Form Dialog */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editId ? 'Edit Recurring Expense' : 'New Recurring Expense'}</DialogTitle>
             <DialogDescription>
@@ -299,19 +305,21 @@ export function RecurringPage() {
               <div className="grid gap-2">
                 <Label htmlFor="rec-amount">Amount</Label>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-                  <Input id="rec-amount" type="number" step="0.01" min="0" placeholder="0.00" className="pl-7" value={amount} onChange={(e) => setAmount(e.target.value)} />
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">Rs.</span>
+                  <Input id="rec-amount" type="number" step="0.01" min="0" placeholder="0.00" className="pl-9" value={amount} onChange={(e) => setAmount(e.target.value)} />
                 </div>
               </div>
               <div className="grid gap-2">
                 <Label>Frequency</Label>
-                <Select value={frequency} onValueChange={(v) => setFrequency(v as 'weekly' | 'monthly' | 'yearly')}>
+                <Select value={frequency} onValueChange={(v) => setFrequency(v as Frequency)}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="weekly">Weekly</SelectItem>
+                    <SelectItem value="biweekly">Biweekly (every 2 weeks)</SelectItem>
                     <SelectItem value="monthly">Monthly</SelectItem>
+                    <SelectItem value="quarterly">Quarterly (every 3 months)</SelectItem>
                     <SelectItem value="yearly">Yearly</SelectItem>
                   </SelectContent>
                 </Select>
@@ -338,9 +346,27 @@ export function RecurringPage() {
                 <Input id="rec-end" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
               </div>
             </div>
+
+            {/* Next 3 dates preview — #34 */}
+            {previewDates.length > 0 && (
+              <div className="rounded-lg border bg-muted/40 p-3">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <CalendarCheck2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <p className="text-xs font-medium">Next 3 occurrences</p>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {previewDates.map((d, i) => (
+                    <Badge key={i} variant="secondary" className="text-[10px] font-normal">
+                      {format(new Date(d), 'MMM d, yyyy')}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="grid gap-2">
               <Label>Paid By</Label>
-              <Select value={paidBy} onValueChange={setPaidBy}>
+              <Select value={whoPaidId} onValueChange={setWhoPaidId}>
                 <SelectTrigger><SelectValue placeholder="Who pays?" /></SelectTrigger>
                 <SelectContent>
                   {members.map((m) => (
@@ -365,7 +391,10 @@ export function RecurringPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Recurring Expense</AlertDialogTitle>
-            <AlertDialogDescription>This will remove the recurring schedule. Existing expenses will not be deleted.</AlertDialogDescription>
+            <AlertDialogDescription className="flex items-start gap-2">
+              <Info className="h-4 w-4 mt-0.5 shrink-0" />
+              This will remove the recurring schedule. Expenses already generated from it will not be deleted.
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>

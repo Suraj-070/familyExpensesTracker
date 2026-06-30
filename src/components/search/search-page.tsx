@@ -111,7 +111,7 @@ export function SearchPage() {
               {categories.map((c) => (
                 <SelectItem key={c.id} value={c.id}>
                   <span className="flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: c.color }} />
+                    <span className="h-2.5 w-2.5 rounded-full ring-1 ring-black/10 dark:ring-white/10" style={{ backgroundColor: c.color }} />
                     {c.name}
                   </span>
                 </SelectItem>
@@ -197,7 +197,7 @@ export function SearchPage() {
                                   color: expense.category.color,
                                 }}
                               >
-                                <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: expense.category.color }} />
+                                <span className="h-2 w-2 rounded-full ring-1 ring-black/10 dark:ring-white/10" style={{ backgroundColor: expense.category.color }} />
                                 {expense.category.name}
                               </span>
                             )}

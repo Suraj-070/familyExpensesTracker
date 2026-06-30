@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { extractAuth } from '@/lib/auth'
 
-// PUT /api/categories/[id] - Update category (admin only)
+// PUT /api/categories/[id] - Update category (admin OR the member who created it)
 export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -25,11 +25,21 @@ export async function PUT(
     const membership = await db.familyMember.findUnique({
       where: { familyId_userId: { familyId: existing.familyId, userId: auth.userId } },
     })
-    if (!membership || membership.role !== 'admin') {
-      return NextResponse.json({ error: 'Only admins can manage categories' }, { status: 403 })
+    if (!membership) {
+      return NextResponse.json({ error: 'Not a member of this family' }, { status: 403 })
     }
 
-    // Check for name uniqueness if name is being changed
+    const isAdmin = membership.role === 'admin'
+    const isCreator = existing.createdBy === auth.userId
+    // Default categories (isDefault: true) can only be touched by admins.
+    // Member-created categories can be fixed by the member who created them, or by an admin.
+    if (existing.isDefault && !isAdmin) {
+      return NextResponse.json({ error: 'Only admins can manage default categories' }, { status: 403 })
+    }
+    if (!isAdmin && !isCreator) {
+      return NextResponse.json({ error: 'Only the creator or an admin can edit this category' }, { status: 403 })
+    }
+
     if (name && name !== existing.name) {
       const nameExists = await db.category.findUnique({
         where: { familyId_name: { familyId: existing.familyId, name } },
@@ -72,7 +82,7 @@ export async function PUT(
   }
 }
 
-// DELETE /api/categories/[id] - Delete category (admin only)
+// DELETE /api/categories/[id] - Delete category (admin OR the member who created it)
 export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -103,8 +113,17 @@ export async function DELETE(
     const membership = await db.familyMember.findUnique({
       where: { familyId_userId: { familyId: existing.familyId, userId: auth.userId } },
     })
-    if (!membership || membership.role !== 'admin') {
-      return NextResponse.json({ error: 'Only admins can manage categories' }, { status: 403 })
+    if (!membership) {
+      return NextResponse.json({ error: 'Not a member of this family' }, { status: 403 })
+    }
+
+    const isAdmin = membership.role === 'admin'
+    const isCreator = existing.createdBy === auth.userId
+    if (existing.isDefault && !isAdmin) {
+      return NextResponse.json({ error: 'Only admins can manage default categories' }, { status: 403 })
+    }
+    if (!isAdmin && !isCreator) {
+      return NextResponse.json({ error: 'Only the creator or an admin can delete this category' }, { status: 403 })
     }
 
     await db.$transaction([

@@ -2,13 +2,14 @@
 
 import { useEffect, useState } from 'react'
 import { useStore, formatCurrency } from '@/store'
+import { useDashboardData } from '@/hooks/use-queries'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
-  DollarSign, CreditCard, AlertCircle, TrendingUp,
+  Wallet, CreditCard, AlertCircle, TrendingUp,
   CalendarClock, Receipt, Plus,
 } from 'lucide-react'
 import { motion } from 'framer-motion'
@@ -34,11 +35,11 @@ function AnimatedNumber({ value }: { value: number }) {
     raf = requestAnimationFrame(step)
     return () => cancelAnimationFrame(raf)
   }, [value])
-  return <span>${display.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+  return <span>Rs. {display.toLocaleString('en-NP', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 }
 
 function StatCard({ title, value, icon: Icon, colorClass, sub, delay = 0 }: {
-  title: string; value: number; icon: typeof DollarSign
+  title: string; value: number; icon: typeof Wallet
   colorClass: string; sub?: string; delay?: number
 }) {
   return (
@@ -86,36 +87,18 @@ function safeDistance(d: string) {
 }
 
 export function DashboardPage() {
+  const { navigate, currentFamily } = useStore()
   const {
-    loadReportSummary, loadCategoryReport, loadTrendData, loadActivities, loadExpenses,
-    reportSummary, categoryReport, trendData, activities, expenses, navigate, currentFamily,
-  } = useStore()
-
-  // Three states: 'waiting' (no family yet), 'loading', 'done'
-  const [status, setStatus] = useState<'waiting' | 'loading' | 'done'>('waiting')
-
-  useEffect(() => {
-    if (!currentFamily) {
-      setStatus('waiting')
-      return
-    }
-    setStatus('loading')
-    Promise.all([
-      loadReportSummary().catch(() => {}),
-      loadCategoryReport().catch(() => {}),
-      loadTrendData(6).catch(() => {}),
-      loadActivities().catch(() => {}),
-      loadExpenses().catch(() => {}),
-    ]).finally(() => setStatus('done'))
-  }, [currentFamily?.id])
+    reportSummary, categoryReport, trendData, activities, expenses, isLoading,
+  } = useDashboardData()
 
   const unpaidExpenses = expenses
-    .filter(e => e.paidStatus === 'unpaid')
-    .sort((a, b) => (a.dueDate || a.expenseDate).localeCompare(b.dueDate || b.expenseDate))
+    .filter((e: any) => e.paidStatus === 'unpaid')
+    .sort((a: any, b: any) => (a.dueDate || a.expenseDate).localeCompare(b.dueDate || b.expenseDate))
     .slice(0, 5)
 
   const recentExpenses = [...expenses]
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .sort((a: any, b: any) => b.createdAt.localeCompare(a.createdAt))
     .slice(0, 5)
 
   const changePercent = reportSummary?.changePercent ?? 0
@@ -124,7 +107,7 @@ export function DashboardPage() {
     : `${changePercent.toFixed(1)}% vs last month`
 
   // No family yet — show prompt
-  if (status === 'waiting') {
+  if (!currentFamily) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center gap-4">
         <div className="h-14 w-14 rounded-2xl bg-muted flex items-center justify-center">
@@ -139,7 +122,12 @@ export function DashboardPage() {
     )
   }
 
-  if (status === 'loading') {
+  // isLoading is only true the very first time this family's data has never
+  // been fetched before (no cache anywhere — first visit ever, or first visit
+  // on this device). Every subsequent refresh, including a hard reload, has
+  // this resolve to false immediately because React Query rehydrates the
+  // persisted localStorage cache before render — no skeleton needed.
+  if (isLoading) {
     return (
       <div className="space-y-6">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -172,7 +160,7 @@ export function DashboardPage() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard title="Total Expenses" value={reportSummary?.totalExpenses ?? 0} icon={DollarSign}
+        <StatCard title="Total Expenses" value={reportSummary?.totalExpenses ?? 0} icon={Wallet}
           colorClass="bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400" delay={0} />
         <StatCard title="Total Paid" value={reportSummary?.totalPaid ?? 0} icon={CreditCard}
           colorClass="bg-teal-100 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400" delay={0.08} />
@@ -199,7 +187,7 @@ export function DashboardPage() {
                   <PieChart>
                     <Pie data={categoryReport} cx="50%" cy="50%" innerRadius={45} outerRadius={80}
                       paddingAngle={3} dataKey="totalAmount" nameKey="categoryName">
-                      {categoryReport.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                      {categoryReport.map((_: any, i: number) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
                     </Pie>
                     <RechartsTooltip content={<ChartTooltip />} />
                     <Legend verticalAlign="bottom" iconType="circle" iconSize={8}
@@ -225,7 +213,7 @@ export function DashboardPage() {
                   <BarChart data={trendData} barGap={2}>
                     <XAxis dataKey="label" tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} axisLine={false} tickLine={false}
-                      tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
+                      tickFormatter={v => `Rs.${(v / 1000).toFixed(0)}k`} />
                     <RechartsTooltip content={<ChartTooltip />} />
                     <Bar dataKey="paid" name="Paid" fill="#10b981" radius={[4, 4, 0, 0]} />
                     <Bar dataKey="unpaid" name="Unpaid" fill="#f59e0b" radius={[4, 4, 0, 0]} />
@@ -256,7 +244,7 @@ export function DashboardPage() {
               ) : (
                 <ScrollArea className="h-52 pr-2">
                   <div className="grid gap-2">
-                    {unpaidExpenses.map(e => (
+                    {unpaidExpenses.map((e: any) => (
                       <div key={e.id} className="flex items-center justify-between rounded-lg border p-3 hover:bg-accent/50 transition-colors">
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-medium truncate">{e.title}</p>
@@ -290,7 +278,7 @@ export function DashboardPage() {
               ) : (
                 <ScrollArea className="h-52 pr-2">
                   <div className="grid gap-3">
-                    {activities.slice(0, 8).map(a => (
+                    {activities.slice(0, 8).map((a: any) => (
                       <div key={a.id} className="flex items-start gap-3">
                         <div className="mt-0.5 rounded-full bg-muted p-1.5 shrink-0">
                           <Receipt className="h-3 w-3 text-muted-foreground" />
@@ -333,7 +321,7 @@ export function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {recentExpenses.map(e => (
+                  {recentExpenses.map((e: any) => (
                     <tr key={e.id} className="border-b last:border-0 hover:bg-accent/30 transition-colors">
                       <td className="py-2.5 pr-3">
                         <p className="font-medium truncate max-w-[140px]">{e.title}</p>

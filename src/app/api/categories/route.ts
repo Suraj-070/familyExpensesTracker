@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
 
     const category = await db.$transaction(async (tx) => {
       const c = await tx.category.create({
-        data: { name, icon, color, familyId, isDefault: false },
+        data: { name, icon, color, familyId, isDefault: false, createdBy: auth.userId },
         include: { _count: { select: { expenses: true } } },
       })
 

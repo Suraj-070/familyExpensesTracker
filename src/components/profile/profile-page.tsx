@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useStore } from '@/store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,8 +8,56 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Loader2, User, Lock, Save } from 'lucide-react'
+import { Loader2, User, Lock, Save, Eye, EyeOff } from 'lucide-react'
 import { toast } from 'sonner'
+
+function getPasswordStrength(pw: string): { score: number; label: string; color: string } {
+  if (!pw) return { score: 0, label: '', color: '' }
+  let score = 0
+  if (pw.length >= 6) score++
+  if (pw.length >= 10) score++
+  if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) score++
+  if (/\d/.test(pw)) score++
+  if (/[^A-Za-z0-9]/.test(pw)) score++
+
+  if (score <= 1) return { score: 1, label: 'Weak', color: 'bg-red-500' }
+  if (score <= 2) return { score: 2, label: 'Fair', color: 'bg-amber-500' }
+  if (score <= 3) return { score: 3, label: 'Good', color: 'bg-yellow-500' }
+  return { score: 4, label: 'Strong', color: 'bg-emerald-500' }
+}
+
+function PasswordInput({
+  id, value, onChange, placeholder, autoComplete,
+}: {
+  id: string
+  value: string
+  onChange: (v: string) => void
+  placeholder: string
+  autoComplete: string
+}) {
+  const [show, setShow] = useState(false)
+  return (
+    <div className="relative">
+      <Input
+        id={id}
+        type={show ? 'text' : 'password'}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        autoComplete={autoComplete}
+        className="pr-10"
+      />
+      <button
+        type="button"
+        onClick={() => setShow(!show)}
+        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+        aria-label={show ? 'Hide password' : 'Show password'}
+      >
+        {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+      </button>
+    </div>
+  )
+}
 
 export function ProfilePage() {
   const { user, updateProfile } = useStore()
@@ -26,9 +74,14 @@ export function ProfilePage() {
     ? user.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)
     : 'U'
 
+  const strength = useMemo(() => getPasswordStrength(newPassword), [newPassword])
+
+  const profileChanged = name.trim() !== (user?.name || '') || email.trim() !== (user?.email || '')
+
   const handleProfileSave = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim()) { toast.error('Name is required'); return }
+    if (!profileChanged) return
     setProfileLoading(true)
     try {
       await updateProfile({ name: name.trim(), email: email.trim() })
@@ -69,7 +122,6 @@ export function ProfilePage() {
         <p className="text-muted-foreground text-sm mt-1">Manage your personal information</p>
       </div>
 
-      {/* Avatar */}
       <Card>
         <CardContent className="p-6">
           <div className="flex items-center gap-4">
@@ -87,7 +139,6 @@ export function ProfilePage() {
         </CardContent>
       </Card>
 
-      {/* Profile info */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
@@ -117,7 +168,7 @@ export function ProfilePage() {
                 placeholder="your@email.com"
               />
             </div>
-            <Button type="submit" disabled={profileLoading}>
+            <Button type="submit" disabled={profileLoading || !profileChanged}>
               {profileLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               Save Changes
             </Button>
@@ -125,7 +176,6 @@ export function ProfilePage() {
         </CardContent>
       </Card>
 
-      {/* Password */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
@@ -138,11 +188,10 @@ export function ProfilePage() {
           <form onSubmit={handlePasswordSave} className="space-y-4">
             <div className="grid gap-2">
               <Label htmlFor="cur-pass">Current Password</Label>
-              <Input
+              <PasswordInput
                 id="cur-pass"
-                type="password"
                 value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
+                onChange={setCurrentPassword}
                 placeholder="Enter current password"
                 autoComplete="current-password"
               />
@@ -150,25 +199,41 @@ export function ProfilePage() {
             <Separator />
             <div className="grid gap-2">
               <Label htmlFor="new-pass">New Password</Label>
-              <Input
+              <PasswordInput
                 id="new-pass"
-                type="password"
                 value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
+                onChange={setNewPassword}
                 placeholder="At least 6 characters"
                 autoComplete="new-password"
               />
+              {newPassword && (
+                <div className="space-y-1">
+                  <div className="flex gap-1">
+                    {[1, 2, 3, 4].map((i) => (
+                      <div
+                        key={i}
+                        className={`h-1 flex-1 rounded-full transition-colors ${
+                          i <= strength.score ? strength.color : 'bg-muted'
+                        }`}
+                      />
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">{strength.label}</p>
+                </div>
+              )}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="confirm-pass">Confirm New Password</Label>
-              <Input
+              <PasswordInput
                 id="confirm-pass"
-                type="password"
                 value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
+                onChange={setConfirmPassword}
                 placeholder="Repeat new password"
                 autoComplete="new-password"
               />
+              {confirmPassword && newPassword && confirmPassword !== newPassword && (
+                <p className="text-xs text-destructive">Passwords don't match</p>
+              )}
             </div>
             <Button type="submit" disabled={passwordLoading} variant="outline">
               {passwordLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}

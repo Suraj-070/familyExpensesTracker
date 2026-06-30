@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useStore, formatCurrency, type Expense } from '@/store'
+import { useExpensesQuery, useInvalidateAfterExpenseChange } from '@/hooks/use-queries'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -30,7 +31,7 @@ import { ExpenseForm } from './expense-form'
 
 export function ExpensesPage() {
   const {
-    expenses, expenseCount, expenseFilters, setFilters, loadExpenses,
+    expenseFilters, setFilters,
     deleteExpense, togglePaidStatus, setSelectedExpense, categories, members, navigate, currentFamily,
   } = useStore()
 
@@ -40,9 +41,14 @@ export function ExpensesPage() {
   const [detailExpense, setDetailExpense] = useState<Expense | null>(null)
   const [showAddForm, setShowAddForm] = useState(false)
   const [editExpense, setEditExpense] = useState<Expense | null>(null)
-  const [loading, setLoading] = useState(true)
   const [togglingId, setTogglingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  // React Query — cached + persisted, renders instantly on refresh
+  const { data: expenseData, isLoading: loading } = useExpensesQuery(expenseFilters)
+  const expenses = expenseData?.expenses || []
+  const expenseCount = expenseData?.count || expenseData?.total || 0
+  const invalidateExpenses = useInvalidateAfterExpenseChange()
 
   // Debounce search
   useEffect(() => {
@@ -50,17 +56,12 @@ export function ExpensesPage() {
     return () => clearTimeout(t)
   }, [searchInput])
 
-  useEffect(() => {
-    if (!currentFamily) return
-    setLoading(true)
-    loadExpenses().finally(() => setLoading(false))
-  }, [expenseFilters, currentFamily?.id])
-
   const handleDelete = async () => {
     if (!deleteId) return
     setDeletingId(deleteId)
     try {
       await deleteExpense(deleteId)
+      invalidateExpenses()
       toast.success('Expense deleted')
       setDeleteId(null)
       if (detailExpense?.id === deleteId) setDetailExpense(null)
@@ -76,6 +77,7 @@ export function ExpensesPage() {
     setTogglingId(id)
     try {
       await togglePaidStatus(id)
+      invalidateExpenses()
       toast.success('Status updated')
     } catch {
       toast.error('Failed to update status')

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { extractAuth } from '@/lib/auth'
+import { getMembershipAndPermissions, canModifyExpense } from '@/lib/permissions'
 
 // GET /api/expenses/[id]
 export async function GET(
@@ -29,7 +30,6 @@ export async function GET(
       return NextResponse.json({ error: 'Expense not found' }, { status: 404 })
     }
 
-    // Verify membership
     const membership = await db.familyMember.findUnique({
       where: { familyId_userId: { familyId: expense.familyId, userId: auth.userId } },
     })
@@ -63,19 +63,17 @@ export async function PUT(
       return NextResponse.json({ error: 'Expense not found' }, { status: 404 })
     }
 
-    // Check permissions: owner or admin
-    const membership = await db.familyMember.findUnique({
-      where: { familyId_userId: { familyId: existing.familyId, userId: auth.userId } },
-    })
-    if (!membership) {
+    const access = await getMembershipAndPermissions(existing.familyId, auth.userId)
+    if (!access) {
       return NextResponse.json({ error: 'Not a member of this family' }, { status: 403 })
     }
 
-    const isAdmin = membership.role === 'admin'
-    const isOwner = existing.addedById === auth.userId
-
-    if (!isAdmin && !isOwner) {
-      return NextResponse.json({ error: 'Only the owner or an admin can edit this expense' }, { status: 403 })
+    const isOwnExpense = existing.addedById === auth.userId
+    if (!canModifyExpense(access.role, access.permissions, 'edit', isOwnExpense)) {
+      return NextResponse.json(
+        { error: 'You do not have permission to edit this expense' },
+        { status: 403 }
+      )
     }
 
     const updateData: Record<string, unknown> = {}
@@ -142,18 +140,17 @@ export async function DELETE(
       return NextResponse.json({ error: 'Expense not found' }, { status: 404 })
     }
 
-    const membership = await db.familyMember.findUnique({
-      where: { familyId_userId: { familyId: existing.familyId, userId: auth.userId } },
-    })
-    if (!membership) {
+    const access = await getMembershipAndPermissions(existing.familyId, auth.userId)
+    if (!access) {
       return NextResponse.json({ error: 'Not a member of this family' }, { status: 403 })
     }
 
-    const isAdmin = membership.role === 'admin'
-    const isOwner = existing.addedById === auth.userId
-
-    if (!isAdmin && !isOwner) {
-      return NextResponse.json({ error: 'Only the owner or an admin can delete this expense' }, { status: 403 })
+    const isOwnExpense = existing.addedById === auth.userId
+    if (!canModifyExpense(access.role, access.permissions, 'delete', isOwnExpense)) {
+      return NextResponse.json(
+        { error: 'You do not have permission to delete this expense' },
+        { status: 403 }
+      )
     }
 
     await db.$transaction([
@@ -165,7 +162,7 @@ export async function DELETE(
           action: 'expense_deleted',
           entityType: 'expense',
           entityId: id,
-          details: `Deleted expense "${existing.title}" - $${existing.amount}`,
+          details: `Deleted expense "${existing.title}" - Rs. ${existing.amount}`,
         },
       }),
     ])

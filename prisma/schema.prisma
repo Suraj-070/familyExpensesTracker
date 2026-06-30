@@ -25,6 +25,8 @@ model User {
   notifications     Notification[]
   activityLogs      ActivityLog[]      @relation("ActivityUser")
   createdFamilies   Family[]           @relation("FamilyCreator")
+  categoriesCreated Category[]         @relation("CategoryCreator")
+  recurringPaidFor  RecurringExpense[] @relation("RecurringPaidBy")
 }
 
 model Family {
@@ -36,14 +38,14 @@ model Family {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  creator          User               @relation("FamilyCreator", fields: [createdBy], references: [id])
-  members          FamilyMember[]
-  expenses         Expense[]
-  categories       Category[]         @relation("CategoryFamily")
+  creator           User               @relation("FamilyCreator", fields: [createdBy], references: [id])
+  members           FamilyMember[]
+  expenses          Expense[]
+  categories        Category[]         @relation("CategoryFamily")
   recurringExpenses RecurringExpense[]
-  permissions      Permission[]
-  activityLogs     ActivityLog[]
-  notifications    Notification[]
+  permissions       Permission[]
+  activityLogs      ActivityLog[]
+  notifications     Notification[]
 }
 
 model FamilyMember {
@@ -76,7 +78,7 @@ model Expense {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  category    Category?     @relation(fields: [categoryId], references: [id])
+  category    Category?    @relation(fields: [categoryId], references: [id])
   whoPaid     User         @relation("PaidBy", fields: [whoPaidId], references: [id])
   addedBy     User         @relation("AddedBy", fields: [addedById], references: [id])
   family      Family       @relation(fields: [familyId], references: [id], onDelete: Cascade)
@@ -93,10 +95,12 @@ model Category {
   color     String   @default("#6366f1")
   familyId  String
   isDefault Boolean  @default(false)
+  createdBy String?
   createdAt DateTime @default(now())
 
-  family                 Family             @relation("CategoryFamily", fields: [familyId], references: [id], onDelete: Cascade)
-  expenses               Expense[]
+  family                  Family             @relation("CategoryFamily", fields: [familyId], references: [id], onDelete: Cascade)
+  creator                 User?              @relation("CategoryCreator", fields: [createdBy], references: [id])
+  expenses                Expense[]
   recurringCategoryUsages RecurringExpense[] @relation("RecurringCategory")
 
   @@unique([familyId, name])
@@ -112,13 +116,15 @@ model RecurringExpense {
   startDate   DateTime
   endDate     DateTime?
   nextDueDate DateTime
+  whoPaidId   String?
   createdBy   String
   isActive    Boolean   @default(true)
   createdAt   DateTime  @default(now())
 
-  family   Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  family   Family    @relation(fields: [familyId], references: [id], onDelete: Cascade)
   category Category? @relation("RecurringCategory", fields: [categoryId], references: [id])
-  creator  User     @relation(fields: [createdBy], references: [id])
+  creator  User      @relation(fields: [createdBy], references: [id])
+  whoPaid  User?     @relation("RecurringPaidBy", fields: [whoPaidId], references: [id])
 }
 
 model Notification {
@@ -182,4 +188,15 @@ model Attachment {
 
   expense        Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
   uploadedByUser User    @relation("AttachmentUploader", fields: [uploadedBy], references: [id])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([token])
 }

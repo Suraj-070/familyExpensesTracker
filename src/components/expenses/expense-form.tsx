@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useStore, type Expense } from '@/store'
+import { useInvalidateAfterExpenseChange } from '@/hooks/use-queries'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -39,6 +40,7 @@ export function ExpenseForm({ onClose, editingExpense }: ExpenseFormProps) {
     categories, members, user, createExpense, updateExpense,
     createCategory, token,
   } = useStore()
+  const invalidateExpenses = useInvalidateAfterExpenseChange()
 
   const isEditing = !!editingExpense
 
@@ -185,10 +187,12 @@ export function ExpenseForm({ onClose, editingExpense }: ExpenseFormProps) {
       if (isEditing && editingExpense) {
         await updateExpense(editingExpense.id, data)
         if (pendingFiles.length > 0) await uploadFiles(editingExpense.id)
+        invalidateExpenses()
         toast.success('Expense updated')
       } else {
         const newId = await createExpense(data)
         if (newId && pendingFiles.length > 0) await uploadFiles(newId)
+        invalidateExpenses()
         toast.success('Expense added')
       }
       onClose?.()
